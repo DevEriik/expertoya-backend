@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  api:
+    build: .
+    container_name: expertoya-api
+    ports:
+      - "3000:3000"
+    volumes:
+      # Sincroniza la carpeta local con el contenedor para ver cambios en vivo (Hot Reloading)
+      - .:/usr/src/app
+      # Protege la carpeta node_modules del contenedor
+      - /usr/src/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
