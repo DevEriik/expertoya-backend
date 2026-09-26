@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  CLIENTE
+  PROFESIONAL
+  ADMIN
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password_hash String
+  nombre        String
+  apellido      String
+  telefono      String?
+  foto_perfil   String?
+  rol           Role      @default(CLIENTE)
+  creado_en     DateTime  @default(now())
+
+  // Relaciones con el perfil profesional y sesiones
+  profile            Profile?          @relation("UsuarioPerfil")
+  usuarios_validados Profile[]         @relation("AdminValidador")
+  sessions           Session[]
+  tokens_dispositivo TokenDispositivo[]
+
+  @@map("usuario")
+}
+
+model Profile {
+  id                    String    @id @default(uuid())
+  userId                String    @unique
+  validado_por          String?
+  estado_validado       Boolean   @default(false)
+  matricula_documento   String?
+  fecha_validacion      DateTime?
+  descripcion_perfil    String?
+  calificacion_promedio Float     @default(0)
+
+  user      User  @relation("UsuarioPerfil", fields: [userId], references: [id], onDelete: Cascade)
+  validador User? @relation("AdminValidador", fields: [validado_por], references: [id])
+
+  @@map("profesional")
+}
+
+model Session {
+  id         String   @id @default(uuid())
+  usuario_id String
+  token      String   @unique
+  plataforma String?
+  expiresAt  DateTime
+  creado_en  DateTime @default(now())
+
+  user User @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  @@map("sesion")
+}
+
+model TokenDispositivo {
+  id                String   @id @default(uuid())
+  usuario_id        String
+  token_dispositivo String
+  plataforma        String
+  creado_en         DateTime @default(now())
+
+  user User @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  @@map("token_dispositivo")
+}
