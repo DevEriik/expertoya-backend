@@ -42,11 +42,10 @@ model Profile {
   matricula_documento   String?
   fecha_validacion      DateTime?
   descripcion_perfil    String?
+  ubicacion_geografica  String?
   calificacion_promedio Float     @default(0)
-
   user      User  @relation("UsuarioPerfil", fields: [userId], references: [id], onDelete: Cascade)
   validador User? @relation("AdminValidador", fields: [validado_por], references: [id])
-
   @@map("profesional")
 }
 
