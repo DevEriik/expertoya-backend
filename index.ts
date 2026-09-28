@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import authRoutes from "./src/routes/auth.routes";
 import adminRoutes from "./src/routes/admin.routes";
+import professionalRoutes from "./src/routes/professional.routes";
 
 dotenv.config();
 
@@ -23,6 +24,8 @@ app.use("/api/auth", authRoutes);
 
 app.use("/api/admin", adminRoutes);
 app.use("/admin", adminRoutes);
+
+app.use("/api/professionals", professionalRoutes);
 
 app.listen(PORT, () => {
   console.log(`Servidor iniciado en http://localhost:${PORT}`);
