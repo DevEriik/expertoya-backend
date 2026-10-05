@@ -4,136 +4,174 @@ import jwt from "jsonwebtoken";
 import { prisma } from "../config/prisma";
 import { AuthRequest } from "../middlewares/auth.middleware";
 
+const esMayorDeEdad = (fechaNacimientotxt: string): boolean => {
+  const fechaNac = new Date(fechaNacimientotxt);
+
+  if (isNaN(fechaNac.getTime())) return false;
+
+  const hoy = new Date();
+  let edad = hoy.getFullYear() - fechaNac.getFullYear();
+  const mes = hoy.getMonth() - fechaNac.getMonth();
+
+  if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNac.getDate())) {
+    edad--;
+  }
+  return edad >= 18;
+};
+
 export const register = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const {
+  try {
+    const {
+      email,
+      password,
+      rol,
+      nombre,
+      apellido,
+      telefono,
+      fecha_nacimiento,
+      foto_perfil,
+      matricula_documento,
+      descripcion_perfil,
+    } = req.body;
+
+    if (!email || !password || !nombre || !apellido || !fecha_nacimiento) {
+      res
+        .status(400)
+        .json({ error: "Faltan campos obligatorios para el registro" });
+      return;
+    }
+
+    if (!esMayorDeEdad(fecha_nacimiento)) {
+      res.status(400).json({
+        error: "Debes ser mayor de 18 años para operar en ExpertoYa.",
+      });
+      return;
+    }
+
+    const rolesPermitidos = ["CLIENTE", "PROFESIONAL"];
+    const rolUsuario = rolesPermitidos.includes(rol) ? rol : "CLIENTE";
+
+    const usuarioExistente = await prisma.user.findUnique({
+      where: { email },
+    });
+    if (usuarioExistente) {
+      res.status(400).json({ error: "El correo ya está registrado" });
+      return;
+    }
+
+    const password_hash = await bcrypt.hash(password, 10);
+
+    const nuevoUsuario = await prisma.user.create({
+      data: {
         email,
-        password,
-        rol,
+        password_hash,
         nombre,
         apellido,
         telefono,
         foto_perfil,
-        matricula_documento,
-        descripcion_perfil,
-        } = req.body;
-
-        const existingUser = await prisma.user.findUnique({ where: { email } });
-        if (existingUser) {
-        res.status(400).json({ error: "El correo ya está registrado" });
-        return;
-        }
-
-        const password_hash = await bcrypt.hash(password, 10);
-        const userRole = rol || "CLIENTE";
-
-        const newUser = await prisma.user.create({
-        data: {
-            email,
-            password_hash,
-            nombre,
-            apellido,
-            telefono,
-            foto_perfil,
-            rol: userRole,
-            ...(userRole === "PROFESIONAL" && {
-            profile: {
-                create: {
-                matricula_documento,
-                descripcion_perfil,
-                },
+        rol: rolUsuario,
+        ...(rolUsuario === "PROFESIONAL" && {
+          profile: {
+            create: {
+              matricula_documento,
+              descripcion_perfil,
+              estado_validado: false,
             },
-            }),
-        },
-        include: { profile: true },
-        });
+          },
+        }),
+      },
+      include: { profile: true },
+    });
 
-        res.status(201).json({
-        mensaje: "Usuario registrado exitosamente",
-        usuario: {
-            id: newUser.id,
-            email: newUser.email,
-            nombre: newUser.nombre,
-            apellido: newUser.apellido,
-            rol: newUser.rol,
-            profesional: newUser.profile,
-        },
-        });
-    } catch (error: any) {
-        console.error("Error en register:", error);
-        res.status(500).json({
-        error: "Error al registrar usuario",
-        detalle: error.message || error,
-        });
+    res.status(201).json({
+      mensaje: "Usuario registrado exitosamente",
+      usuario: {
+        id: nuevoUsuario.id,
+        email: nuevoUsuario.email,
+        nombre: nuevoUsuario.nombre,
+        apellido: nuevoUsuario.apellido,
+        rol: nuevoUsuario.rol,
+        profesional: nuevoUsuario.profile,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error en registrar:", error);
+    res.status(500).json({
+      error: "Error interno al procesar el registro",
+      detalle: error.message || error,
+    });
+  }
+};
+
+export const login = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, password, plataforma } = req.body;
+
+    if (!email || !password) {
+      res.status(400).json({ error: "Correo y contraseña son requeridos" });
+      return;
     }
-    };
 
-    export const login = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const { email, password, plataforma } = req.body;
+    const usuario = await prisma.user.findUnique({
+      where: { email },
+      include: { profile: true },
+    });
 
-        const user = await prisma.user.findUnique({
-        where: { email },
-        include: { profile: true },
-        });
+    if (!usuario || !(await bcrypt.compare(password, usuario.password_hash))) {
+      res.status(401).json({ error: "Credenciales inválidas" });
+      return;
+    }
 
-        if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-        res.status(401).json({ error: "Credenciales inválidas" });
-        return;
-        }
+    const secret = process.env.JWT_SECRET || "expertoya_clave_secreta_jwt_2026";
+    const token = jwt.sign({ userId: usuario.id, rol: usuario.rol }, secret, {
+      expiresIn: "7d",
+    });
 
-        const secret = process.env.JWT_SECRET || "expertoya_clave_secreta_jwt_2026";
-        const token = jwt.sign({ userId: user.id, rol: user.rol }, secret, {
-        expiresIn: "7d",
-        });
+    const fechaExpiracion = new Date();
+    fechaExpiracion.setDate(fechaExpiracion.getDate() + 7);
 
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 7);
-
-        await prisma.session.create({
-        data: {
-            usuario_id: user.id,
-            token,
-            plataforma: plataforma || "WEB",
-            expiresAt,
-        },
-        });
-
-        res.json({
-        mensaje: "Inicio de sesión exitoso",
+    await prisma.session.create({
+      data: {
+        usuario_id: usuario.id,
         token,
-        usuario: {
-            id: user.id,
-            email: user.email,
-            nombre: user.nombre,
-            apellido: user.apellido,
-            rol: user.rol,
-            profesional: user.profile,
-        },
-        });
-    } catch (error: any) {
-        console.error("Error en login:", error);
-        res.status(500).json({
-        error: "Error al iniciar sesión",
-        detalle: error.message || error,
-        });
-    }
-    };
+        plataforma: plataforma || "WEB",
+        expiresAt: fechaExpiracion,
+      },
+    });
 
-    export const logout = async (
-    req: AuthRequest,
-    res: Response,
-    ): Promise<void> => {
-    try {
-        const token = req.headers.authorization?.split(" ")[1];
-        if (token) {
-        await prisma.session.deleteMany({ where: { token } });
-        }
-        res.json({ mensaje: "Sesión cerrada correctamente" });
-    } catch (error: any) {
-        res.status(500).json({
-        error: "Error al cerrar sesión",
-        detalle: error.message || error,
-        });
+    res.json({
+      mensaje: "Inicio de sesión exitoso",
+      token,
+      usuario: {
+        id: usuario.id,
+        email: usuario.email,
+        nombre: usuario.nombre,
+        apellido: usuario.apellido,
+        rol: usuario.rol,
+        profesional: usuario.profile,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error en login:", error);
+    res.status(500).json({
+      error: "Error interno al procesar el inicio de sesión",
+    });
+  }
+};
+
+export const logout = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (token) {
+      await prisma.session.deleteMany({ where: { token } });
     }
+    res.json({ mensaje: "Sesión cerrada correctamente" });
+  } catch (error: any) {
+    res.status(500).json({
+      error: "Error interno al procesar el cierre de sesión",
+    });
+  }
 };

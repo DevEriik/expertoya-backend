@@ -8,7 +8,7 @@ export const getPendingProfessionals = async (
     res: Response,
 ): Promise<void> => {
     try {
-        const pendientes = await prisma.profile.findMany({
+        const profesionalesPendientes = await prisma.profile.findMany({
         where: {
             estado_validado: false,
         },
@@ -32,12 +32,12 @@ export const getPendingProfessionals = async (
         },
     });
 
-    res.status(200).json(pendientes);
+    res.status(200).json(profesionalesPendientes);
     } catch (error) {
         console.error("Error al obtener profesionales pendientes:", error);
         res
         .status(500)
-        .json({ error: "Error al obtener profesionales pendientes" });
+        .json({ error: "Error interno al obtener profesionales pendientes" });
     }
 };
 
@@ -48,7 +48,7 @@ export const approveProfessional = async (
 ): Promise<void> => {
     try {
         const { id } = req.params; // Puede ser el id del Profile o el userId
-        const adminId = req.user?.userId;
+        const idAdministrador = req.user?.userId;
 
         const perfilExistente = await prisma.profile.findFirst({
         where: {
@@ -57,7 +57,7 @@ export const approveProfessional = async (
     });
 
     if (!perfilExistente) {
-        res.status(404).json({ error: "Perfil profesional no encontrado" });
+        res.status(404).json({ error: "El perfil del profesional no ha encontrado" });
         return;
     }
 
@@ -66,17 +66,17 @@ export const approveProfessional = async (
         data: {
             estado_validado: true,
             fecha_validacion: new Date(),
-            validado_por: adminId,
+            validado_por: idAdministrador,
         },
     });
 
     res.status(200).json({
-        message: "Profesional aprobado con éxito",
+        message: "El perfil del profesional ha sido aprobado con éxito",
         profesional: profesionalAprobado,
     });
     } catch (error) {
         console.error("Error al aprobar profesional:", error);
-        res.status(500).json({ error: "Error al aprobar el perfil profesional" });
+        res.status(500).json({ error: "Error interno al aprobar el perfil profesional" });
     }
 };
 
@@ -87,16 +87,15 @@ export const rejectProfessional = async (
 ): Promise<void> => {
     try {
         const { id } = req.params;
-        const adminId = req.user?.userId;
+        const idAdministrador = req.user?.userId;
+        const { motivo } = req.body;
 
         const perfilExistente = await prisma.profile.findFirst({
-        where: {
-            OR: [{ id }, { userId: id }],
-        },
-        });
-
+        where: { id }
+        })
+    
         if (!perfilExistente) {
-        res.status(404).json({ error: "Perfil profesional no encontrado" });
+        res.status(404).json({ error: "El perfil del profesional no ha sido encontrado" });
         return;
         }
 
@@ -105,13 +104,14 @@ export const rejectProfessional = async (
         data: {
             estado_validado: false,
             fecha_validacion: new Date(),
-            validado_por: adminId,
+            validado_por: idAdministrador,
         },
         });
 
         res.status(200).json({
-        message: "Profesional rechazado",
-        profesional: profesionalRechazado,
+            message: "El perfil del profesional ha sido rechazado",
+            motivo: motivo || "Documentación no legible o inválida",
+            profesional: profesionalRechazado,
         });
     } catch (error) {
         console.error("Error al rechazar profesional:", error);
