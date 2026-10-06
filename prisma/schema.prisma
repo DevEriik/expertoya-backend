@@ -22,6 +22,7 @@ model User {
   apellido      String
   telefono      String?
   foto_perfil   String?
+  fecha_nacimiento DateTime?
   rol           Role      @default(CLIENTE)
   creado_en     DateTime  @default(now())
 
