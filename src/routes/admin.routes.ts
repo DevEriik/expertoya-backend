@@ -14,4 +14,3 @@ router.patch("/professionals/:id/approve", approveProfessional);
 router.patch("/professionals/:id/reject", rejectProfessional);
 
 export default router;
-git status
