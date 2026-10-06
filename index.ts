@@ -21,10 +21,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 app.use("/api/auth", authRoutes);
-
 app.use("/api/admin", adminRoutes);
-app.use("/admin", adminRoutes);
-
 app.use("/api/professionals", professionalRoutes);
 
 app.listen(PORT as number, "0.0.0.0", () => {

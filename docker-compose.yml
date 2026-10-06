@@ -2,6 +2,7 @@ services:
   api:
     build: .
     container_name: expertoya-api
+    command: npm run dev
     ports:
       - "3000:3000"
     volumes:
