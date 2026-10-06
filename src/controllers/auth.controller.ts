@@ -69,54 +69,13 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         apellido,
         telefono,
         foto_perfil,
-        fecha_nacimiento,
-        matricula_documento,
-        descripcion_perfil,
-        } = req.body;
-
-        if (!fecha_nacimiento) {
-            res.status(400).json({ error: "La fecha de nacimiento es obligatoria" });
-            return;
-        }
-
-        const birthDate = new Date(fecha_nacimiento);
-        const today = new Date();
-        let age = today.getFullYear() - birthDate.getFullYear();
-        const m = today.getMonth() - birthDate.getMonth();
-        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-            age--;
-        }
-
-        if (age < 18) {
-            res.status(403).json({ error: "Debes ser mayor de 18 años para registrarte en la plataforma" });
-            return;
-        }
-
-        const existingUser = await prisma.user.findUnique({ where: { email } });
-        if (existingUser) {
-        res.status(400).json({ error: "El correo ya está registrado" });
-        return;
-        }
-
-        const password_hash = await bcrypt.hash(password, 10);
-        const userRole = rol || "CLIENTE";
-
-        const newUser = await prisma.user.create({
-        data: {
-            email,
-            password_hash,
-            nombre,
-            apellido,
-            telefono,
-            foto_perfil,
-            fecha_nacimiento: birthDate,
-            rol: userRole,
-            ...(userRole === "PROFESIONAL" && {
-            profile: {
-                create: {
-                matricula_documento,
-                descripcion_perfil,
-                },
+        fecha_nacimiento: new Date(fecha_nacimiento),
+        rol: rolUsuario,
+        ...(rolUsuario === "PROFESIONAL" && {
+          profile: {
+            create: {
+              matricula_documento,
+              descripcion_perfil,
             },
           },
         }),
@@ -218,19 +177,24 @@ export const logout = async (
 };
 
 export const updateProfile = async (req: AuthRequest, res: Response) => {
-    try {
-        const userId = req.user?.userId;
-        if (!userId) return res.status(401).json({ error: "No autorizado" });
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: "No autorizado" });
 
-        const { nombre, apellido, telefono, foto_perfil } = req.body;
-        
-        const updatedUser = await prisma.user.update({
-            where: { id: userId },
-            data: { nombre, apellido, telefono, foto_perfil }
-        });
-        
-        res.json(updatedUser);
-    } catch (error: any) {
-        res.status(500).json({ error: "Error al actualizar perfil", detalle: error.message || error });
-    }
+    const { nombre, apellido, telefono, foto_perfil } = req.body;
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { nombre, apellido, telefono, foto_perfil },
+    });
+
+    res.json(updatedUser);
+  } catch (error: any) {
+    res
+      .status(500)
+      .json({
+        error: "Error al actualizar perfil",
+        detalle: error.message || error,
+      });
+  }
 };
