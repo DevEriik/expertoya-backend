@@ -24,6 +24,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/professionals", professionalRoutes);
 
-app.listen(PORT, () => {
-  console.log(`Servidor iniciado en http://localhost:${PORT}`);
+app.listen(PORT as number, "0.0.0.0", () => {
+  console.log(`Servidor iniciado en http://0.0.0.0:${PORT}`);
 });
