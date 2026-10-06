@@ -54,7 +54,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const usuarioExistente = await prisma.user.findUnique({
       where: { email },
     });
-    
+
     if (usuarioExistente) {
       res.status(400).json({ error: "El correo ya está registrado" });
       return;
