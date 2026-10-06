@@ -6,6 +6,7 @@ import {
     AuthRequest,
 } from "../middlewares/auth.middleware";
 
+
 const router = Router();
 
 router.post("/register", register);
@@ -19,5 +20,6 @@ router.get("/me", verifyToken, (req: AuthRequest, res) => {
 router.get("/admin-check", verifyToken, isAdmin, (req: AuthRequest, res) => {
     res.json({ mensaje: "Acceso de Administrador verificado correctamente" });
 });
+
 
 export default router;
