@@ -41,11 +41,23 @@ model Profile {
   userId                String    @unique
   validado_por          String?
   estado_validado       Boolean   @default(false)
-  matricula_documento   String?
+  
+  // Campos de Onboarding (Documentación)
+  dni_frente            String?
+  dni_dorso             String?
+  selfie_biometrica     String?
+  antecedentes_penales  String?
+  certificado_no_deudor String?
+  cuit                  String?
+  constancia_afip       String?
+  
+  matricula_documento   String? 
+  
   fecha_validacion      DateTime?
   descripcion_perfil    String?
   ubicacion_geografica  String?
   calificacion_promedio Float     @default(0)
+  
   user      User  @relation("UsuarioPerfil", fields: [userId], references: [id], onDelete: Cascade)
   validador User? @relation("AdminValidador", fields: [validado_por], references: [id])
   @@map("profesional")

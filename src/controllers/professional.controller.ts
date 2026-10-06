@@ -142,3 +142,54 @@ export const updateProfile = async (
         });
     }
 };
+
+/**
+ * POST /api/professionals/onboarding
+ * Sube documentos de onboarding y CUIT del profesional.
+ */
+export const submitOnboarding = async (
+    req: AuthRequest,
+    res: Response
+): Promise<void> => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ error: "No autenticado" });
+            return;
+        }
+
+        const { cuit } = req.body;
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+
+        const dataToUpdate: any = {};
+        
+        if (cuit) dataToUpdate.cuit = cuit;
+        if (files?.dni_frente?.[0]) dataToUpdate.dni_frente = files.dni_frente[0].path;
+        if (files?.dni_dorso?.[0]) dataToUpdate.dni_dorso = files.dni_dorso[0].path;
+        if (files?.selfie_biometrica?.[0]) dataToUpdate.selfie_biometrica = files.selfie_biometrica[0].path;
+        if (files?.antecedentes_penales?.[0]) dataToUpdate.antecedentes_penales = files.antecedentes_penales[0].path;
+        if (files?.certificado_no_deudor?.[0]) dataToUpdate.certificado_no_deudor = files.certificado_no_deudor[0].path;
+        if (files?.constancia_afip?.[0]) dataToUpdate.constancia_afip = files.constancia_afip[0].path;
+
+        await prisma.profile.upsert({
+            where: { userId },
+            update: dataToUpdate,
+            create: {
+                userId,
+                ...dataToUpdate,
+                estado_validado: false,
+            }
+        });
+
+        res.status(200).json({
+            mensaje: "Onboarding completado exitosamente",
+            documentosRecibidos: Object.keys(files || {}),
+        });
+    } catch (error: any) {
+        console.error("Error en submitOnboarding:", error);
+        res.status(500).json({
+            error: "Error interno al procesar el onboarding",
+            detalle: error.message || error,
+        });
+    }
+};
