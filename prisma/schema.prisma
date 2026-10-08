@@ -15,7 +15,28 @@ enum Role {
   ADMIN
 }
 
-model User {
+enum EstadoSolicitud {
+  PENDIENTE
+  ACEPTADO
+  RECHAZADO
+  EN_CURSO
+  FINALIZADO
+  DISPUTA
+}
+
+enum EstadoPago {
+  RETENIDO
+  LIBERADO
+  REEMBOLSADO
+}
+
+enum EstadoDisputa {
+  ABIERTA
+  RESUELTA_CLIENTE
+  RESUELTA_PROFESIONAL
+}
+
+model Usuario {
   id            String    @id @default(uuid())
   email         String    @unique
   password_hash String
@@ -27,53 +48,17 @@ model User {
   rol           Role      @default(CLIENTE)
   creado_en     DateTime  @default(now())
 
-  // Relaciones con el perfil profesional y sesiones
-  profile            Profile?          @relation("UsuarioPerfil")
-  usuarios_validados Profile[]         @relation("AdminValidador")
-  sessions           Session[]
+  // Relaciones
+  profesional        Profesional?
   tokens_dispositivo TokenDispositivo[]
+  historial_diagnostico HistorialDiagnosticoIA[]
+  solicitudes        SolicitudTrabajo[]       @relation("ClienteSolicitud")
+  mensajes_enviados  MensajeChat[]            @relation("RemitenteMensaje")
+  resenias_dadas     Resenia[]                @relation("ReseniaCliente")
+  profesionales_validados Profesional[]       @relation("AdminValidador")
+  sesiones           Sesion[]
 
   @@map("usuario")
-}
-
-model Profile {
-  id                    String    @id @default(uuid())
-  userId                String    @unique
-  validado_por          String?
-  estado_validado       Boolean   @default(false)
-  
-  // Campos de Onboarding (Documentación)
-  dni_frente            String?
-  dni_dorso             String?
-  selfie_biometrica     String?
-  antecedentes_penales  String?
-  certificado_no_deudor String?
-  cuit                  String?
-  constancia_afip       String?
-  
-  matricula_documento   String? 
-  
-  fecha_validacion      DateTime?
-  descripcion_perfil    String?
-  ubicacion_geografica  String?
-  calificacion_promedio Float     @default(0)
-  
-  user      User  @relation("UsuarioPerfil", fields: [userId], references: [id], onDelete: Cascade)
-  validador User? @relation("AdminValidador", fields: [validado_por], references: [id])
-  @@map("profesional")
-}
-
-model Session {
-  id         String   @id @default(uuid())
-  usuario_id String
-  token      String   @unique
-  plataforma String?
-  expiresAt  DateTime
-  creado_en  DateTime @default(now())
-
-  user User @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
-
-  @@map("sesion")
 }
 
 model TokenDispositivo {
@@ -83,7 +68,192 @@ model TokenDispositivo {
   plataforma        String
   creado_en         DateTime @default(now())
 
-  user User @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+  usuario Usuario @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
 
   @@map("token_dispositivo")
+}
+
+model Profesional {
+  id                    String    @id
+  validado_por          String?
+  estado_validado       Boolean   @default(false)
+  matricula_documento   String?
+  fecha_validacion      DateTime?
+  descripcion_perfil    String?
+  dni_frente            String?
+  dni_dorso             String?
+  selfie_biometrica     String?
+  antecedentes_penales  String?
+  certificado_no_deudor String?
+  cuit                  String?
+  constancia_afip       String?
+  calificacion_promedio Float     @default(0)
+  ubicacion_geografica  String?   // Soporte para geografía (podemos usar extensiones PostGIS más adelante si es necesario)
+
+  usuario   Usuario  @relation(fields: [id], references: [id], onDelete: Cascade)
+  validador Usuario? @relation("AdminValidador", fields: [validado_por], references: [id])
+
+  disponibilidades      DisponibilidadProfesional[]
+  servicios_publicados  ServicioPublicado[]
+  resenias_recibidas    Resenia[] @relation("ReseniaProfesional")
+
+  @@map("profesional")
+}
+
+model DisponibilidadProfesional {
+  id             String   @id @default(uuid())
+  profesional_id String
+  dia_semana     Int
+  hora_inicio    DateTime @db.Time()
+  hora_fin       DateTime @db.Time()
+  creado_en      DateTime @default(now())
+
+  profesional Profesional @relation(fields: [profesional_id], references: [id], onDelete: Cascade)
+
+  @@map("disponibilidad_profesional")
+}
+
+model Oficio {
+  id                 Int      @id @default(autoincrement())
+  nombre_oficio      String
+  descripcion_oficio String?
+
+  servicios_publicados ServicioPublicado[]
+
+  @@map("oficio")
+}
+
+model ServicioPublicado {
+  id                   String   @id @default(uuid())
+  profesional_id       String
+  oficio_id            Int
+  titulo_servicio      String
+  descripcion_servicio String
+  costo_estimado       Decimal  @db.Decimal(10, 2)
+  duracion_estimada    String
+  fotos_servicio       Json?
+  servicio_activo      Boolean  @default(true)
+
+  profesional Profesional @relation(fields: [profesional_id], references: [id], onDelete: Cascade)
+  oficio      Oficio      @relation(fields: [oficio_id], references: [id], onDelete: Restrict)
+  solicitudes SolicitudTrabajo[]
+
+  @@map("servicio_publicado")
+}
+
+model HistorialDiagnosticoIA {
+  id             String   @id @default(uuid())
+  cliente_id     String
+  input_cliente  String
+  oficio_sugerido String?
+  fecha_consulta DateTime @default(now())
+
+  cliente Usuario @relation(fields: [cliente_id], references: [id], onDelete: Cascade)
+
+  @@map("historial_diagnostico_ia")
+}
+
+model SolicitudTrabajo {
+  id                       String          @id @default(uuid())
+  cliente_id               String
+  servicio_id              String
+  fecha_solicitada         DateTime
+  estado_solicitud_trabajo EstadoSolicitud @default(PENDIENTE)
+  actualizado_en           DateTime        @updatedAt
+
+  cliente  Usuario           @relation("ClienteSolicitud", fields: [cliente_id], references: [id], onDelete: Cascade)
+  servicio ServicioPublicado @relation(fields: [servicio_id], references: [id], onDelete: Cascade)
+
+  pagos              PagoEscrow[]
+  sesiones_video     SesionVideollamada[]
+  disputas           Disputa[]
+  mensajes           MensajeChat[]
+  resenias           Resenia[]
+
+  @@map("solicitud_trabajo")
+}
+
+model PagoEscrow {
+  id                  String     @id @default(uuid())
+  solicitud_id        String
+  transaccion_mp_id   String?
+  monto_total         Decimal    @db.Decimal(10, 2)
+  comision_plataforma Decimal    @db.Decimal(10, 2)
+  estado_pago         EstadoPago @default(RETENIDO)
+  fecha_pago          DateTime   @default(now())
+
+  solicitud SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+
+  @@map("pago_escrow")
+}
+
+model SesionVideollamada {
+  id                String   @id @default(uuid())
+  solicitud_id      String
+  proveedor_id      String?
+  hora_inicio       DateTime @default(now())
+  hora_fin          DateTime?
+  duracion_segundos Int?
+
+  solicitud SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+
+  @@map("sesion_videollamada")
+}
+
+model Resenia {
+  id                    String   @id @default(uuid())
+  solicitud_id          String
+  cliente_id            String
+  profesional_id        String
+  calificacion          Int
+  comentario            String?
+  respuesta_profesional String?
+  fecha_creacion        DateTime @default(now())
+
+  solicitud   SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+  cliente     Usuario          @relation("ReseniaCliente", fields: [cliente_id], references: [id], onDelete: Cascade)
+  profesional Profesional      @relation("ReseniaProfesional", fields: [profesional_id], references: [id], onDelete: Cascade)
+
+  @@map("resenia")
+}
+
+model MensajeChat {
+  id           String   @id @default(uuid())
+  solicitud_id String
+  remitente_id String
+  contenido    String
+  adjunto_url  String?
+  enviado_en   DateTime @default(now())
+  leido        Boolean  @default(false)
+
+  solicitud SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+  remitente Usuario          @relation("RemitenteMensaje", fields: [remitente_id], references: [id], onDelete: Cascade)
+
+  @@map("mensaje_chat")
+}
+
+model Disputa {
+  id               String        @id @default(uuid())
+  solicitud_id     String
+  motivo           String
+  estado           EstadoDisputa @default(ABIERTA)
+  resolucion_admin String?
+  abierta_en       DateTime      @default(now())
+
+  solicitud SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+
+  @@map("disputa")
+}
+
+model Sesion {
+  id         String   @id @default(uuid())
+  usuario_id String
+  token      String   @unique
+  plataforma String?
+  expiresAt  DateTime
+  creado_en  DateTime @default(now())
+
+  usuario Usuario @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  @@map("sesion")
 }
