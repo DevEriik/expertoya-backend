@@ -4,13 +4,13 @@ import {
   approveProfessional,
   rejectProfessional,
 } from "../controllers/admin.controller";
+import { verifyToken, isAdmin } from "../middlewares/auth.middleware";
 
 const router = Router();
 
-// Endpoint libre para pruebas inmediatas
-router.get("/pending-professionals", getPendingProfessionals);
-
-router.patch("/professionals/:id/approve", approveProfessional);
-router.patch("/professionals/:id/reject", rejectProfessional);
+// Endpoints protegidos para administradores
+router.get("/pending-professionals", verifyToken, isAdmin, getPendingProfessionals);
+router.patch("/professionals/:id/approve", verifyToken, isAdmin, approveProfessional);
+router.patch("/professionals/:id/reject", verifyToken, isAdmin, rejectProfessional);
 
 export default router;
