@@ -6,13 +6,10 @@ import { AuthRequest } from "../middlewares/auth.middleware";
 
 const esMayorDeEdad = (fechaNacimientotxt: string): boolean => {
   const fechaNac = new Date(fechaNacimientotxt);
-
   if (isNaN(fechaNac.getTime())) return false;
-
   const hoy = new Date();
   let edad = hoy.getFullYear() - fechaNac.getFullYear();
   const mes = hoy.getMonth() - fechaNac.getMonth();
-
   if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNac.getDate())) {
     edad--;
   }
@@ -49,9 +46,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     }
 
     const rolesPermitidos = ["CLIENTE", "PROFESIONAL"];
-    const rolUsuario = rolesPermitidos.includes(rol) ? rol : "CLIENTE";
+    const rolUsuario: any = rolesPermitidos.includes(rol) ? rol : "CLIENTE";
 
-    const usuarioExistente = await prisma.user.findUnique({
+    const usuarioExistente = await prisma.usuario.findUnique({
       where: { email },
     });
 
@@ -62,7 +59,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
     const password_hash = await bcrypt.hash(password, 10);
 
-    const nuevoUsuario = await prisma.user.create({
+    const nuevoUsuario = await prisma.usuario.create({
       data: {
         email,
         password_hash,
@@ -73,7 +70,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         fecha_nacimiento: new Date(fecha_nacimiento),
         rol: rolUsuario,
         ...(rolUsuario === "PROFESIONAL" && {
-          profile: {
+          profesional: {
             create: {
               matricula_documento,
               descripcion_perfil,
@@ -82,7 +79,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
           },
         }),
       },
-      include: { profile: true },
+      include: { profesional: true },
     });
 
     res.status(201).json({
@@ -93,7 +90,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         nombre: nuevoUsuario.nombre,
         apellido: nuevoUsuario.apellido,
         rol: nuevoUsuario.rol,
-        profesional: nuevoUsuario.profile,
+        profesional: nuevoUsuario.profesional,
       },
     });
   } catch (error: any) {
@@ -114,9 +111,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const usuario = await prisma.user.findUnique({
+    const usuario = await prisma.usuario.findUnique({
       where: { email },
-      include: { profile: true },
+      include: { profesional: true },
     });
 
     if (!usuario || !(await bcrypt.compare(password, usuario.password_hash))) {
@@ -132,7 +129,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     const fechaExpiracion = new Date();
     fechaExpiracion.setDate(fechaExpiracion.getDate() + 7);
 
-    await prisma.session.create({
+    await prisma.sesion.create({
       data: {
         usuario_id: usuario.id,
         token,
@@ -150,14 +147,14 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         nombre: usuario.nombre,
         apellido: usuario.apellido,
         rol: usuario.rol,
-        profesional: usuario.profile,
+        profesional: usuario.profesional,
       },
     });
   } catch (error: any) {
     console.error("Error en login:", error);
-    res.status(500).json({
-      error: "Error interno al procesar el inicio de sesión",
-    });
+    res
+      .status(500)
+      .json({ error: "Error interno al procesar el inicio de sesión" });
   }
 };
 
@@ -167,36 +164,42 @@ export const logout = async (
 ): Promise<void> => {
   try {
     const token = req.headers.authorization?.split(" ")[1];
+
     if (token) {
-      await prisma.session.deleteMany({ where: { token } });
+      await prisma.sesion.deleteMany({ where: { token } });
     }
+
     res.json({ mensaje: "Sesión cerrada correctamente" });
   } catch (error: any) {
-    res.status(500).json({
-      error: "Error interno al procesar el cierre de sesión",
-    });
+    res
+      .status(500)
+      .json({ error: "Error interno al procesar el cierre de sesión" });
   }
 };
 
-export const updateProfile = async (req: AuthRequest, res: Response) => {
+export const updateProfile = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
   try {
     const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ error: "No autorizado" });
+    if (!userId) {
+      res.status(401).json({ error: "No autorizado" });
+      return;
+    }
 
     const { nombre, apellido, telefono, foto_perfil } = req.body;
 
-    const updatedUser = await prisma.user.update({
+    const updatedUser = await prisma.usuario.update({
       where: { id: userId },
       data: { nombre, apellido, telefono, foto_perfil },
     });
 
     res.json(updatedUser);
   } catch (error: any) {
-    res
-      .status(500)
-      .json({
-        error: "Error al actualizar perfil",
-        detalle: error.message || error,
-      });
+    res.status(500).json({
+      error: "Error al actualizar perfil",
+      detalle: error.message || error,
+    });
   }
 };
