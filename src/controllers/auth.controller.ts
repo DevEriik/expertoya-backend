@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/prisma";
 import { AuthRequest } from "../middlewares/auth.middleware";
+import { sendWelcomeEmail } from "../email.service";
 
 const esMayorDeEdad = (fechaNacimientotxt: string): boolean => {
   const fechaNac = new Date(fechaNacimientotxt);
@@ -30,11 +31,19 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       matricula_documento,
       descripcion_perfil,
     } = req.body;
-
+    
     if (!email || !password || !nombre || !apellido || !fecha_nacimiento) {
       res
         .status(400)
         .json({ error: "Faltan campos obligatorios para el registro" });
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      res.status(400).json({
+        error: "El formato del correo electrónico ingresado no es válido.",
+      });
       return;
     }
 
@@ -81,6 +90,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       },
       include: { profesional: true },
     });
+
+    // Enviar correo de bienvenida
+    await sendWelcomeEmail(nuevoUsuario.email, nuevoUsuario.nombre);
 
     res.status(201).json({
       mensaje: "Usuario registrado exitosamente",
