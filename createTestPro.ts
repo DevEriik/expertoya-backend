@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const email = 'pro@test.com';
-  const existingUser = await prisma.user.findUnique({ where: { email } });
+  const existingUser = await prisma.usuario.findUnique({ where: { email } });
   
   if (existingUser) {
     console.log('Test professional already exists:', email);
@@ -14,7 +14,7 @@ async function main() {
 
   const password_hash = await bcrypt.hash('123456', 10);
 
-  const newPro = await prisma.user.create({
+  const newPro = await prisma.usuario.create({
     data: {
       email,
       password_hash,
@@ -22,7 +22,7 @@ async function main() {
       apellido: 'Profesional',
       telefono: '2991234567',
       rol: 'PROFESIONAL',
-      profile: {
+      profesional: {
         create: {
           descripcion_perfil: 'Soy un electricista matriculado con 10 años de experiencia.',
           ubicacion_geografica: 'Neuquén, Cipolletti',

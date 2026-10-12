@@ -18,7 +18,7 @@ import { prisma } from "../config/prisma";
 
 router.get("/me", verifyToken, async (req: AuthRequest, res) => {
     try {
-        const user = await prisma.user.findUnique({
+        const user = await prisma.usuario.findUnique({
             where: { id: req.user?.userId },
             select: { nombre: true, apellido: true, telefono: true, foto_perfil: true, email: true, rol: true }
         });

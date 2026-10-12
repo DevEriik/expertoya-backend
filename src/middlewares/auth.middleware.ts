@@ -54,3 +54,34 @@ export const isAdmin = (
   }
   next();
 };
+
+export const requireValidatedProfessional = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const profesional = await prisma.profesional.findUnique({
+      where: { id: userId },
+      select: { estado_validado: true, estado_auditoria: true },
+    });
+
+    if (!profesional || !profesional.estado_validado || profesional.estado_auditoria !== "APROBADO") {
+      res.status(403).json({
+        error: "Perfil en proceso de validación",
+        detalle: "Tu perfil profesional aún está en proceso de auditoría y no ha sido aprobado por un administrador.",
+      });
+      return;
+    }
+
+    next();
+  } catch (error) {
+    res.status(500).json({ error: "Error interno al verificar estado del profesional" });
+  }
+};
