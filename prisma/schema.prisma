@@ -36,6 +36,12 @@ enum EstadoDisputa {
   RESUELTA_PROFESIONAL
 }
 
+enum EstadoAuditoria {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
 model Usuario {
   id            String    @id @default(uuid())
   email         String    @unique
@@ -74,9 +80,11 @@ model TokenDispositivo {
 }
 
 model Profesional {
-  id                    String    @id
+  id                    String          @id
   validado_por          String?
-  estado_validado       Boolean   @default(false)
+  estado_validado       Boolean         @default(false)
+  estado_auditoria      EstadoAuditoria @default(PENDIENTE)
+  motivo_rechazo        String?         @db.Text
   matricula_documento   String?
   fecha_validacion      DateTime?
   descripcion_perfil    String?
@@ -87,15 +95,16 @@ model Profesional {
   certificado_no_deudor String?
   cuit                  String?
   constancia_afip       String?
-  calificacion_promedio Float     @default(0)
-  ubicacion_geografica  String?   // Soporte para geografía (podemos usar extensiones PostGIS más adelante si es necesario)
-
+  calificacion_promedio Float           @default(0)
+  ubicacion_geografica  String?
   usuario   Usuario  @relation(fields: [id], references: [id], onDelete: Cascade)
   validador Usuario? @relation("AdminValidador", fields: [validado_por], references: [id])
 
   disponibilidades      DisponibilidadProfesional[]
   servicios_publicados  ServicioPublicado[]
   resenias_recibidas    Resenia[] @relation("ReseniaProfesional")
+  oficios               Oficio[]  @relation("ProfesionalOficios")
+
 
   @@map("profesional")
 }
@@ -119,6 +128,7 @@ model Oficio {
   descripcion_oficio String?
 
   servicios_publicados ServicioPublicado[]
+  profesionales        Profesional[] @relation("ProfesionalOficios")
 
   @@map("oficio")
 }
