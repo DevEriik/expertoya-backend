@@ -91,6 +91,8 @@ export const updateProfile = async (
       foto_perfil,
       descripcion_perfil,
       ubicacion_geografica,
+      latitud,
+      longitud,
     } = req.body;
 
     const perfilExistente = await prisma.profesional.findUnique({
@@ -113,6 +115,12 @@ export const updateProfile = async (
           update: {
             ...(descripcion_perfil !== undefined && { descripcion_perfil }),
             ...(ubicacion_geografica !== undefined && { ubicacion_geografica }),
+            ...(latitud !== undefined && {
+              latitud: latitud === null ? null : Number(latitud),
+            }),
+            ...(longitud !== undefined && {
+              longitud: longitud === null ? null : Number(longitud),
+            }),
           },
         },
       },

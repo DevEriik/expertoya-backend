@@ -6,6 +6,8 @@ import cors from "cors";
 import authRoutes from "./src/routes/auth.routes";
 import adminRoutes from "./src/routes/admin.routes";
 import professionalRoutes from "./src/routes/professional.routes";
+import profesionalesRoutes from "./src/routes/professional.routes";
+import profesionesRoutes from "./src/routes/profesiones.routes";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,7 +18,6 @@ import fs from "fs";
 app.use(cors());
 app.use(express.json());
 
-// Servir archivos de /uploads resolviendo problemas de encoding de espacios (%20)
 app.use("/uploads", (req: Request, res: Response, next: NextFunction) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -25,7 +26,10 @@ app.use("/uploads", (req: Request, res: Response, next: NextFunction) => {
   const rawPath = req.path;
 
   const candidateDecoded = path.join(uploadsDir, decodedPath);
-  if (fs.existsSync(candidateDecoded) && fs.statSync(candidateDecoded).isFile()) {
+  if (
+    fs.existsSync(candidateDecoded) &&
+    fs.statSync(candidateDecoded).isFile()
+  ) {
     return res.sendFile(candidateDecoded);
   }
 
@@ -47,14 +51,15 @@ app.get("/", (req: Request, res: Response) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/professionals", professionalRoutes);
+app.use("/api/profesionales", profesionalesRoutes);
+app.use("/api/profesiones", profesionesRoutes);
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("Error capturado por Express:", err.message);
   res.status(400).json({
-    error: err.message || "Error al procesar la solicitud"
+    error: err.message || "Error al procesar la solicitud",
   });
 });
-
 
 app.listen(PORT as number, "0.0.0.0", () => {
   console.log(`Servidor iniciado en http://0.0.0.0:${PORT}`);

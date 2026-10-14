@@ -7,3 +7,6 @@ node_modules/
 
 # Subidas de multer
 /uploads/
+
+#AGENTS
+AGENTS.md
