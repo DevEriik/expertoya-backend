@@ -8,11 +8,13 @@ import {
   getPublicProfessionals,
 } from "../controllers/professional.controller";
 import { verifyToken } from "../middlewares/auth.middleware";
+import { buscarProfesionales } from "../controllers/search.controller";
 
 const router = Router();
 
 router.get("/oficios", getOficios);
 router.get("/public", getPublicProfessionals);
+router.get("/buscar", buscarProfesionales);
 
 const storage = multer.memoryStorage();
 

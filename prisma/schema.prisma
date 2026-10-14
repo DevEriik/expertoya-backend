@@ -97,6 +97,8 @@ model Profesional {
   constancia_afip       String?
   calificacion_promedio Float           @default(0)
   ubicacion_geografica  String?
+  latitud               Float?
+  longitud              Float?
   usuario   Usuario  @relation(fields: [id], references: [id], onDelete: Cascade)
   validador Usuario? @relation("AdminValidador", fields: [validado_por], references: [id])
 
