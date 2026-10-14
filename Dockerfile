@@ -1,5 +1,5 @@
 # Usamos una imagen ligera de Node.js como base 
-FROM node:20-alpine
+FROM node:22-alpine
 
 #Creamos la carpeta donde viviria la app dentro del contenedor
 WORKDIR /usr/src/app
