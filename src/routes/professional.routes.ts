@@ -6,6 +6,8 @@ import {
   submitOnboarding,
   getOficios,
   getPublicProfessionals,
+  getAvailability,
+  updateAvailability,
 } from "../controllers/professional.controller";
 import { verifyToken } from "../middlewares/auth.middleware";
 import { buscarProfesionales } from "../controllers/search.controller";
@@ -76,6 +78,8 @@ router.use(verifyToken);
 
 router.get("/profile", getProfile);
 router.put("/profile", updateProfile);
+router.get("/availability", getAvailability);
+router.put("/availability", updateAvailability);
 
 router.post(
   "/onboarding",

@@ -84,6 +84,7 @@ model Profesional {
   validado_por          String?
   estado_validado       Boolean         @default(false)
   estado_auditoria      EstadoAuditoria @default(PENDIENTE)
+  disponible            Boolean         @default(true)
   motivo_rechazo        String?         @db.Text
   matricula_documento   String?
   fecha_validacion      DateTime?

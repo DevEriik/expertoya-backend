@@ -24,7 +24,11 @@ export const buscarProfesionales = async (
     return;
   }
 
-  const where: any = { estado_validado: true, estado_auditoria: "APROBADO" };
+  const where: any = {
+    estado_validado: true,
+    estado_auditoria: "APROBADO",
+    disponible: true,
+  };
 
   if (nombre) {
     where.OR = [
