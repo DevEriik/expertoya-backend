@@ -34,6 +34,7 @@ export const getProfile = async (
             estado_auditoria: true,
             motivo_rechazo: true,
             calificacion_promedio: true,
+            disponible: true,
           },
         },
       },
@@ -63,6 +64,7 @@ export const getProfile = async (
       tiene_solicitud: Boolean(usuarioConPerfil.profesional),
       calificacion_promedio:
         usuarioConPerfil.profesional?.calificacion_promedio ?? 0,
+      disponible: (usuarioConPerfil.profesional as any)?.disponible ?? true,
     });
   } catch (error: any) {
     console.error("Error al obtener perfil profesional:", error);
@@ -93,6 +95,7 @@ export const updateProfile = async (
       ubicacion_geografica,
       latitud,
       longitud,
+      disponible,
     } = req.body;
 
     const perfilExistente = await prisma.profesional.findUnique({
@@ -121,6 +124,7 @@ export const updateProfile = async (
             ...(longitud !== undefined && {
               longitud: longitud === null ? null : Number(longitud),
             }),
+            ...(disponible !== undefined && { disponible: Boolean(disponible) }),
           },
         },
       },
@@ -140,6 +144,7 @@ export const updateProfile = async (
         ubicacion_geografica:
           usuarioActualizado.profesional?.ubicacion_geografica,
         estado_validado: usuarioActualizado.profesional?.estado_validado,
+        disponible: (usuarioActualizado.profesional as any)?.disponible ?? true,
       },
     });
   } catch (error: any) {
@@ -293,11 +298,11 @@ export const submitOnboarding = async (
         const oficiosNombres =
           oficiosPrisma.length > 0
             ? (
-                await prisma.oficio.findMany({
-                  where: { id: { in: oficiosPrisma.map((o) => o.id) } },
-                  select: { nombre_oficio: true },
-                })
-              ).map((o) => o.nombre_oficio)
+              await prisma.oficio.findMany({
+                where: { id: { in: oficiosPrisma.map((o) => o.id) } },
+                select: { nombre_oficio: true },
+              })
+            ).map((o) => o.nombre_oficio)
             : [];
 
         const adminUsers = await prisma.usuario.findMany({
@@ -365,6 +370,7 @@ export const getPublicProfessionals = async (
       where: {
         estado_validado: true,
         estado_auditoria: "APROBADO",
+        disponible: true,
       },
       include: {
         oficios: true,
@@ -386,5 +392,71 @@ export const getPublicProfessionals = async (
     res
       .status(500)
       .json({ error: "Error interno al obtener profesionales públicos" });
+  }
+};
+
+export const getAvailability = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const disponibilidades = await prisma.disponibilidadProfesional.findMany({
+      where: { profesional_id: userId },
+      orderBy: { dia_semana: "asc" },
+    });
+
+    const formateados = disponibilidades.map((d) => ({
+      id: d.id,
+      dia_semana: d.dia_semana,
+      hora_inicio: d.hora_inicio.toISOString().substring(11, 16),
+      hora_fin: d.hora_fin.toISOString().substring(11, 16),
+    }));
+
+    res.status(200).json(formateados);
+  } catch (error: any) {
+    console.error("Error al obtener disponibilidad:", error);
+    res.status(500).json({ error: "Error al obtener disponibilidad" });
+  }
+};
+
+export const updateAvailability = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const { horarios } = req.body;
+
+    if (!Array.isArray(horarios)) {
+      res.status(400).json({ error: "El formato de horarios debe ser una lista" });
+      return;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.disponibilidadProfesional.deleteMany({
+        where: { profesional_id: userId },
+      });
+
+      if (horarios.length > 0) {
+        await tx.disponibilidadProfesional.createMany({
+          data: horarios.map((h: any) => ({
+            profesional_id: userId,
+            dia_semana: Number(h.dia_semana),
+            hora_inicio: new Date(`1970-01-01T${h.hora_inicio}:00Z`),
+            hora_fin: new Date(`1970-01-01T${h.hora_fin}:00Z`),
+          })),
+        });
+      }
+    });
+
+    res.status(200).json({ mensaje: "Disponibilidad guardada correctamente" });
+  } catch (error: any) {
+    console.error("Error al actualizar disponibilidad:", error);
+    res.status(500).json({ error: "Error interno al guardar disponibilidad" });
   }
 };
