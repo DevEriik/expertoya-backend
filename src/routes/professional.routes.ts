@@ -8,6 +8,11 @@ import {
   getPublicProfessionals,
   getAvailability,
   updateAvailability,
+  getMyServices,
+  getPublicServicesByProfessionalId,
+  createService,
+  updateService,
+  deleteService,
 } from "../controllers/professional.controller";
 import { verifyToken } from "../middlewares/auth.middleware";
 import { buscarProfesionales } from "../controllers/search.controller";
@@ -17,6 +22,7 @@ const router = Router();
 router.get("/oficios", getOficios);
 router.get("/public", getPublicProfessionals);
 router.get("/buscar", buscarProfesionales);
+router.get("/public/:id/services", getPublicServicesByProfessionalId);
 
 const storage = multer.memoryStorage();
 
@@ -80,6 +86,12 @@ router.get("/profile", getProfile);
 router.put("/profile", updateProfile);
 router.get("/availability", getAvailability);
 router.put("/availability", updateAvailability);
+
+// Servicios Publicados (CRUD del Profesional)
+router.get("/services", getMyServices);
+router.post("/services", createService);
+router.put("/services/:id", updateService);
+router.delete("/services/:id", deleteService);
 
 router.post(
   "/onboarding",
