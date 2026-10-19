@@ -460,3 +460,315 @@ export const updateAvailability = async (req: AuthRequest, res: Response): Promi
     res.status(500).json({ error: "Error interno al guardar disponibilidad" });
   }
 };
+
+// ==========================================
+// SERVICIOS PUBLICADOS (CRUD)
+// ==========================================
+
+export const getMyServices = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const services = await prisma.servicioPublicado.findMany({
+      where: { profesional_id: userId },
+      include: {
+        oficio: {
+          select: { id: true, nombre_oficio: true },
+        },
+      },
+      orderBy: { id: "desc" },
+    });
+
+    const formatted = services.map((s) => ({
+      id: s.id,
+      profesional_id: s.profesional_id,
+      oficio_id: s.oficio_id,
+      nombre_oficio: s.oficio?.nombre_oficio,
+      titulo_servicio: s.titulo_servicio,
+      descripcion_servicio: s.descripcion_servicio,
+      costo_estimado: Number(s.costo_estimado),
+      duracion_estimada: s.duracion_estimada,
+      fotos_servicio: Array.isArray(s.fotos_servicio) ? s.fotos_servicio : [],
+      servicio_activo: s.servicio_activo,
+    }));
+
+    res.status(200).json(formatted);
+  } catch (error: any) {
+    console.error("Error al obtener servicios del profesional:", error);
+    res.status(500).json({ error: "Error al obtener servicios" });
+  }
+};
+
+export const getPublicServicesByProfessionalId = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      res.status(400).json({ error: "ID de profesional requerido" });
+      return;
+    }
+
+    const services = await prisma.servicioPublicado.findMany({
+      where: {
+        profesional_id: id,
+        servicio_activo: true,
+      },
+      include: {
+        oficio: {
+          select: { id: true, nombre_oficio: true },
+        },
+      },
+      orderBy: { costo_estimado: "asc" },
+    });
+
+    const formatted = services.map((s) => ({
+      id: s.id,
+      profesional_id: s.profesional_id,
+      oficio_id: s.oficio_id,
+      nombre_oficio: s.oficio?.nombre_oficio,
+      titulo_servicio: s.titulo_servicio,
+      descripcion_servicio: s.descripcion_servicio,
+      costo_estimado: Number(s.costo_estimado),
+      duracion_estimada: s.duracion_estimada,
+      fotos_servicio: Array.isArray(s.fotos_servicio) ? s.fotos_servicio : [],
+      servicio_activo: s.servicio_activo,
+    }));
+
+    res.status(200).json(formatted);
+  } catch (error: any) {
+    console.error("Error al obtener servicios públicos:", error);
+    res.status(500).json({ error: "Error al obtener servicios públicos" });
+  }
+};
+
+export const createService = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const {
+      oficio_id,
+      titulo_servicio,
+      descripcion_servicio,
+      costo_estimado,
+      duracion_estimada,
+      fotos_servicio,
+      servicio_activo = true,
+    } = req.body;
+
+    if (!titulo_servicio || !oficio_id || !costo_estimado || !duracion_estimada) {
+      res.status(400).json({
+        error:
+          "Los campos título, oficio, costo y duración estimada son obligatorios",
+      });
+      return;
+    }
+
+    // Validación del límite máximo de 30 servicios activos
+    if (Boolean(servicio_activo)) {
+      const activeCount = await prisma.servicioPublicado.count({
+        where: {
+          profesional_id: userId,
+          servicio_activo: true,
+        },
+      });
+
+      if (activeCount >= 30) {
+        res.status(400).json({
+          error:
+            "Has alcanzado el límite inicial máximo de 30 servicios activos por perfil.",
+        });
+        return;
+      }
+    }
+
+    const nuevoServicio = await prisma.servicioPublicado.create({
+      data: {
+        profesional_id: userId,
+        oficio_id: Number(oficio_id),
+        titulo_servicio: String(titulo_servicio).trim(),
+        descripcion_servicio: String(descripcion_servicio || "").trim(),
+        costo_estimado: Number(costo_estimado),
+        duracion_estimada: String(duracion_estimada).trim(),
+        fotos_servicio: Array.isArray(fotos_servicio) ? fotos_servicio : [],
+        servicio_activo: Boolean(servicio_activo),
+      },
+      include: {
+        oficio: {
+          select: { id: true, nombre_oficio: true },
+        },
+      },
+    });
+
+    res.status(201).json({
+      mensaje: "Servicio publicado con éxito",
+      servicio: {
+        id: nuevoServicio.id,
+        profesional_id: nuevoServicio.profesional_id,
+        oficio_id: nuevoServicio.oficio_id,
+        nombre_oficio: nuevoServicio.oficio?.nombre_oficio,
+        titulo_servicio: nuevoServicio.titulo_servicio,
+        descripcion_servicio: nuevoServicio.descripcion_servicio,
+        costo_estimado: Number(nuevoServicio.costo_estimado),
+        duracion_estimada: nuevoServicio.duracion_estimada,
+        fotos_servicio: nuevoServicio.fotos_servicio,
+        servicio_activo: nuevoServicio.servicio_activo,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error al crear servicio:", error);
+    res.status(500).json({ error: "Error interno al crear el servicio" });
+  }
+};
+
+export const updateService = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    const { id } = req.params;
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const servicioExistente = await prisma.servicioPublicado.findFirst({
+      where: { id, profesional_id: userId },
+    });
+
+    if (!servicioExistente) {
+      res
+        .status(404)
+        .json({ error: "Servicio no encontrado o no pertenece a tu perfil" });
+      return;
+    }
+
+    const {
+      oficio_id,
+      titulo_servicio,
+      descripcion_servicio,
+      costo_estimado,
+      duracion_estimada,
+      fotos_servicio,
+      servicio_activo,
+    } = req.body;
+
+    // Si se activa el servicio, validar límite de 30
+    if (servicio_activo === true && !servicioExistente.servicio_activo) {
+      const activeCount = await prisma.servicioPublicado.count({
+        where: {
+          profesional_id: userId,
+          servicio_activo: true,
+          NOT: { id },
+        },
+      });
+
+      if (activeCount >= 30) {
+        res.status(400).json({
+          error:
+            "Has alcanzado el límite inicial máximo de 30 servicios activos por perfil.",
+        });
+        return;
+      }
+    }
+
+    const servicioActualizado = await prisma.servicioPublicado.update({
+      where: { id },
+      data: {
+        ...(oficio_id !== undefined && { oficio_id: Number(oficio_id) }),
+        ...(titulo_servicio !== undefined && {
+          titulo_servicio: String(titulo_servicio).trim(),
+        }),
+        ...(descripcion_servicio !== undefined && {
+          descripcion_servicio: String(descripcion_servicio).trim(),
+        }),
+        ...(costo_estimado !== undefined && {
+          costo_estimado: Number(costo_estimado),
+        }),
+        ...(duracion_estimada !== undefined && {
+          duracion_estimada: String(duracion_estimada).trim(),
+        }),
+        ...(fotos_servicio !== undefined && {
+          fotos_servicio: Array.isArray(fotos_servicio) ? fotos_servicio : [],
+        }),
+        ...(servicio_activo !== undefined && {
+          servicio_activo: Boolean(servicio_activo),
+        }),
+      },
+      include: {
+        oficio: {
+          select: { id: true, nombre_oficio: true },
+        },
+      },
+    });
+
+    res.status(200).json({
+      mensaje: "Servicio actualizado con éxito",
+      servicio: {
+        id: servicioActualizado.id,
+        profesional_id: servicioActualizado.profesional_id,
+        oficio_id: servicioActualizado.oficio_id,
+        nombre_oficio: servicioActualizado.oficio?.nombre_oficio,
+        titulo_servicio: servicioActualizado.titulo_servicio,
+        descripcion_servicio: servicioActualizado.descripcion_servicio,
+        costo_estimado: Number(servicioActualizado.costo_estimado),
+        duracion_estimada: servicioActualizado.duracion_estimada,
+        fotos_servicio: servicioActualizado.fotos_servicio,
+        servicio_activo: servicioActualizado.servicio_activo,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error al actualizar servicio:", error);
+    res.status(500).json({ error: "Error interno al actualizar el servicio" });
+  }
+};
+
+export const deleteService = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    const { id } = req.params;
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const servicioExistente = await prisma.servicioPublicado.findFirst({
+      where: { id, profesional_id: userId },
+    });
+
+    if (!servicioExistente) {
+      res
+        .status(404)
+        .json({ error: "Servicio no encontrado o no pertenece a tu perfil" });
+      return;
+    }
+
+    await prisma.servicioPublicado.delete({
+      where: { id },
+    });
+
+    res.status(200).json({ mensaje: "Servicio eliminado con éxito" });
+  } catch (error: any) {
+    console.error("Error al eliminar servicio:", error);
+    res.status(500).json({ error: "Error interno al eliminar el servicio" });
+  }
+};
