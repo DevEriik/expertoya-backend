@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const OFICIOS_SEED = [
-  { id: 1, nombre_oficio: 'Plomero / Fontanero', descripcion_oficio: 'Instalación y reparación de cañerías, grifería y artefactos sanitarios.' },
+  { id: 1, nombre_oficio: 'Plomero', descripcion_oficio: 'Instalación y reparación de cañerías, grifería y artefactos sanitarios.' },
   { id: 2, nombre_oficio: 'Gasista Matriculado', descripcion_oficio: 'Instalaciones de gas domiciliarias y comerciales habilitadas por Camuzzi.' },
   { id: 3, nombre_oficio: 'Electricista', descripcion_oficio: 'Instalaciones eléctricas, tableros y mantenimiento matriculado.' },
   { id: 4, nombre_oficio: 'Pintor', descripcion_oficio: 'Pintura de interiores, exteriores y acabados decorativos.' },
