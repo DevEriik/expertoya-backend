@@ -507,6 +507,82 @@ class EmailService {
       );
     }
   }
+
+  // 6. Correo de Recuperación de Contraseña
+  public async sendPasswordResetEmail(
+    to: string,
+    nombre: string,
+    resetToken: string,
+    resetUrl: string,
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de recuperación de contraseña para: ${to} (${nombre}) - Token: ${resetToken} - URL: ${resetUrl}`,
+      );
+      return;
+    }
+
+    const html = this.getBaseTemplate({
+      badgeText: "🔐 Seguridad de tu Cuenta",
+      badgeBgColor: "#fff7ed",
+      badgeTextColor: "#c2410c",
+      badgeBorderColor: "#fed7aa",
+      heading: `Recupera tu contraseña, <br />${nombre}`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Hemos recibido una solicitud para restablecer la contraseña asociada a tu cuenta de <strong>ExpertoYa!</strong>.
+        </p>
+
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
+          Para establecer una nueva clave de acceso, por favor haz clic en el botón de abajo:
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 14px; padding: 20px; margin: 20px 0; text-align: center;">
+          <tr>
+            <td align="center">
+              <p style="margin: 0 0 8px 0; color: #64748b; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                Código / Token de Seguridad para App Móvil
+              </p>
+              <div style="margin: 0; padding: 10px 14px; background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; display: inline-block; max-width: 100%;">
+                <code style="color: #283593; font-size: 13px; font-weight: 700; word-break: break-all; letter-spacing: 0.5px;">
+                  ${resetToken}
+                </code>
+              </div>
+              <p style="margin: 10px 0 0 0; color: #94a3b8; font-size: 12px;">
+                Si estás usando la aplicación móvil, puedes copiar este código en la pantalla de recuperación.
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 20px 0 0 0;">
+          Por razones de seguridad, este enlace y token tienen una validez de <strong>1 hora</strong>. Si no solicitaste este cambio, puedes ignorar este mensaje; tu contraseña actual continuará siendo segura.
+        </p>
+      `,
+      ctaText: "Restablecer mi Contraseña",
+      ctaUrl: resetUrl,
+      extraNote:
+        "Si tienes problemas con el botón, copia y pega el enlace o introduce el código directamente en la app.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject: "Recuperación de contraseña - ExpertoYa! 🔐",
+        text: `Hola ${nombre}!\n\nHemos recibido una solicitud para restablecer tu contraseña en ExpertoYa.\n\nPuedes restablecerla ingresando a este enlace:\n${resetUrl}\n\nO utilizando el token de seguridad en la aplicación:\n${resetToken}\n\nEste enlace expira en 1 hora. Si no realizaste la solicitud, ignora este mensaje.\n\nEquipo de ExpertoYa! © ${new Date().getFullYear()}`,
+        html,
+      });
+      console.log(
+        `[Email Service] Correo de recuperación de contraseña enviado a: ${to}`,
+      );
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de recuperación:",
+        error,
+      );
+    }
+  }
 }
 
 const emailService = EmailService.getInstance();
@@ -514,4 +590,12 @@ const emailService = EmailService.getInstance();
 export const sendWelcomeEmail = (email: string, nombre: string) =>
   emailService.sendWelcomeEmail(email, nombre);
 
+export const sendPasswordResetEmail = (
+  to: string,
+  nombre: string,
+  resetToken: string,
+  resetUrl: string,
+) => emailService.sendPasswordResetEmail(to, nombre, resetToken, resetUrl);
+
 export default emailService;
+
