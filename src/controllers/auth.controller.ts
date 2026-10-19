@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/prisma";
 import { AuthRequest } from "../middlewares/auth.middleware";
-import { sendWelcomeEmail } from "../email.service";
+import { sendWelcomeEmail } from "../services/email.service";
 
 const esMayorDeEdad = (fechaNacimientotxt: string): boolean => {
   const fechaNac = new Date(fechaNacimientotxt);

@@ -461,10 +461,6 @@ export const updateAvailability = async (req: AuthRequest, res: Response): Promi
   }
 };
 
-// ==========================================
-// SERVICIOS PUBLICADOS (CRUD)
-// ==========================================
-
 export const getMyServices = async (
   req: AuthRequest,
   res: Response,
@@ -579,7 +575,6 @@ export const createService = async (
       return;
     }
 
-    // Validación del límite máximo de 30 servicios activos
     if (Boolean(servicio_activo)) {
       const activeCount = await prisma.servicioPublicado.count({
         where: {
@@ -669,7 +664,6 @@ export const updateService = async (
       servicio_activo,
     } = req.body;
 
-    // Si se activa el servicio, validar límite de 30
     if (servicio_activo === true && !servicioExistente.servicio_activo) {
       const activeCount = await prisma.servicioPublicado.count({
         where: {
@@ -771,4 +765,4 @@ export const deleteService = async (
     console.error("Error al eliminar servicio:", error);
     res.status(500).json({ error: "Error interno al eliminar el servicio" });
   }
-};
+};
