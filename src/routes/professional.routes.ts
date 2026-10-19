@@ -87,7 +87,6 @@ router.put("/profile", updateProfile);
 router.get("/availability", getAvailability);
 router.put("/availability", updateAvailability);
 
-// Servicios Publicados (CRUD del Profesional)
 router.get("/services", getMyServices);
 router.post("/services", createService);
 router.put("/services/:id", updateService);
