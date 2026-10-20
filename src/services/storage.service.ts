@@ -12,14 +12,15 @@ export const subirArchivo = async (
   file: Express.Multer.File,
   carpeta: string = "profesionales"
 ): Promise<string> => {
-  const extension = file.originalname.split(".").pop();
-  const nombreUnico = `${carpeta}/${file.fieldname}-${Date.now()}-${Math.round(Math.random() * 1e9)}.${extension}`;
+  const extension = file.originalname?.split(".").pop() || "pdf";
+  const sanitizedFieldName = file.fieldname || "documento";
+  const nombreUnico = `${carpeta}/${sanitizedFieldName}-${Date.now()}-${Math.round(Math.random() * 1e9)}.${extension}`;
 
   const { data, error } = await supabase.storage
     .from(BUCKET)
     .upload(nombreUnico, file.buffer, {
-      contentType: file.mimetype,
-      upsert: false,
+      contentType: file.mimetype || (extension.toLowerCase() === "pdf" ? "application/pdf" : "image/jpeg"),
+      upsert: true,
     });
 
   if (error) {

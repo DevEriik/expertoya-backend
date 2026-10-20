@@ -68,32 +68,34 @@ class EmailService {
               <!-- Contenedor Principal (Tarjeta blanca) -->
               <table role="presentation" width="100%" style="max-width: 580px; background-color: #ffffff; border-radius: 20px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);" cellspacing="0" cellpadding="0">
                 
-                <!-- Barra Superior / Header Limpio con Logo Oficial -->
+                <!-- Barra Superior / Header Centrado con Logo Oficial -->
                 <tr>
-                  <td style="padding: 32px 40px 20px 40px; border-bottom: 1px solid #f1f5f9;">
-                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                  <td align="center" style="padding: 34px 40px 24px 40px; text-align: center; background-color: #ffffff;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin: 0 auto;">
                       <tr>
-                        <td>
-                          <!-- Logo Estilo ExpertoYa -->
-                          <table role="presentation" cellspacing="0" cellpadding="0">
-                            <tr>
-                              <td style="background-color: #ff7a00; color: #ffffff; font-weight: 900; font-size: 20px; width: 36px; height: 36px; text-align: center; border-radius: 8px; vertical-align: middle;">
-                                E
-                              </td>
-                              <td style="padding-left: 10px; font-size: 24px; font-weight: 800; color: #ff7a00; letter-spacing: -0.5px;">
-                                Experto<span style="color: #1e293b;">Ya!</span>
-                              </td>
-                            </tr>
-                          </table>
+                        <td align="center" style="text-align: center;">
+                          <img
+                            src="https://gkimqfviqmhpvatsqmkz.supabase.co/storage/v1/object/public/archivos/branding/logo-expertoya-light.png"
+                            alt="ExpertoYa!"
+                            width="190"
+                            style="display: block; margin: 0 auto; max-width: 190px; width: 190px; height: auto; border: 0; outline: none; text-decoration: none;"
+                          />
                         </td>
                       </tr>
                     </table>
                   </td>
                 </tr>
 
+                <!-- Línea Separadora entre Header y Main -->
+                <tr>
+                  <td style="padding: 0 40px;">
+                    <div style="border-top: 1px solid #e2e8f0; width: 100%; height: 1px; line-height: 1px; font-size: 1px;">&nbsp;</div>
+                  </td>
+                </tr>
+
                 <!-- Cuerpo del Correo -->
                 <tr>
-                  <td style="padding: 36px 40px;">
+                  <td style="padding: 32px 40px 36px 40px;">
                     
                     <!-- Badge Estilo Píldora Semántica -->
                     <div style="display: inline-block; background-color: ${badgeBgColor}; border: 1px solid ${badgeBorderColor}; color: ${badgeTextColor}; font-size: 12px; font-weight: 700; padding: 5px 14px; border-radius: 9999px; margin-bottom: 20px;">
@@ -583,6 +585,276 @@ class EmailService {
       );
     }
   }
+
+  // 7. Correo al Profesional cuando envía nueva documentación de Matrícula
+  public async sendMatriculaSubmittedEmail(
+    to: string,
+    nombre: string,
+    oficios: string[],
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de recepción de matrícula para: ${to} (${nombre}) - Oficios: ${oficios.join(", ")}`,
+      );
+      return;
+    }
+
+    const oficiosTxt = oficios.length > 0 ? oficios.join(", ") : "Oficio solicitado";
+    const html = this.getBaseTemplate({
+      badgeText: "📄 Documentación en Revisión",
+      badgeBgColor: "#eff6ff",
+      badgeTextColor: "#1d4ed8",
+      badgeBorderColor: "#bfdbfe",
+      heading: `Hola ${nombre}, <br />recibimos tu matrícula.`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Hemos recibido correctamente el archivo en formato PDF adjuntado para validar tu habilitación oficial en <strong>${oficiosTxt}</strong>.
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <table role="presentation" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="font-size: 18px; vertical-align: top; width: 28px;">⏳</td>
+                  <td style="font-size: 14px; color: #334155; line-height: 1.5;">
+                    <strong style="color: #1e293b;">Estado de la matrícula:</strong> En auditoría.<br />
+                    <span style="color: #64748b; font-size: 13px;">Un administrador revisará la documentación enviada para habilitar este oficio en tu perfil. <strong>Estaremos haciéndote llegar las novedades.</strong></span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          Tus otros oficios ya aprobados continúan activos con normalidad.
+        </p>
+      `,
+      ctaText: "Ver mi Perfil",
+      ctaUrl: "http://localhost:5173",
+      extraNote: "Estaremos haciéndote llegar las novedades en cuanto concluya la revisión.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject: `Recibimos tu documentación de matrícula: ${oficiosTxt} 📄`,
+        html,
+      });
+      console.log(`[Email Service] Correo de matrícula recibida enviado a: ${to}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de matrícula recibida:",
+        error,
+      );
+    }
+  }
+
+  // 8. Correo al Administrador cuando un profesional ya auditado sube nueva matrícula
+  public async sendAdminNewMatriculaEmail(
+    adminEmail: string,
+    profesionalNombre: string,
+    profesionalEmail: string,
+    oficios: string[],
+    documentoUrl?: string,
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo para admin (${adminEmail}): Nueva matrícula de profesional auditado ${profesionalNombre}`,
+      );
+      return;
+    }
+
+    const oficiosTxt = oficios.length > 0 ? oficios.join(", ") : "Oficio sin especificar";
+    const html = this.getBaseTemplate({
+      badgeText: "⭐ Profesional Auditado - Nueva Matrícula",
+      badgeBgColor: "#fef3c7",
+      badgeTextColor: "#b45309",
+      badgeBorderColor: "#fde68a",
+      heading: "Nueva matrícula adjunta para validar",
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Un profesional que <strong>ya se encuentra auditado y activo</strong> ha adjuntado nueva documentación en formato PDF para habilitar un nuevo oficio con matrícula legal:
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #334155;">
+                <strong>Profesional:</strong> ${profesionalNombre}
+              </p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #334155;">
+                <strong>Email:</strong> ${profesionalEmail}
+              </p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #334155;">
+                <strong>Oficio(s) con matrícula a validar:</strong> <span style="color: #c2410c; font-weight: 700;">${oficiosTxt}</span>
+              </p>
+              <p style="margin: 0; font-size: 13px; color: #047857; font-weight: 600;">
+                ✓ Cuenta profesional previamente verificada
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          Por favor, revisa el archivo PDF adjuntado desde el panel de administración para aprobar o rechazar esta habilitación.
+        </p>
+      `,
+      ctaText: "Auditar Matrícula en Backoffice",
+      ctaUrl: "http://localhost:5173/admin",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to: adminEmail,
+        subject: `Nueva matrícula adjunta para validar: ${profesionalNombre} (${oficiosTxt}) 📋`,
+        html,
+      });
+      console.log(`[Email Service] Notificación de nueva matrícula enviada al admin: ${adminEmail}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de nueva matrícula a admin:",
+        error,
+      );
+    }
+  }
+
+  // 9. Correo de Aprobación de Matrícula para Oficio Específico
+  public async sendMatriculaApprovedEmail(
+    to: string,
+    nombre: string,
+    oficios: string[],
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de matrícula aprobada para: ${to} (${nombre}) - Oficios: ${oficios.join(", ")}`,
+      );
+      return;
+    }
+
+    const oficiosTxt = oficios.length > 0 ? oficios.join(", ") : "tu especialidad";
+    const html = this.getBaseTemplate({
+      badgeText: "✅ Matrícula Habilitada",
+      badgeBgColor: "#ecfdf5",
+      badgeTextColor: "#047857",
+      badgeBorderColor: "#a7f3d0",
+      heading: `¡Felicitaciones, ${nombre}! <br />Tu matrícula ha sido aprobada.`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Nos complace informarte que la documentación oficial que adjuntaste para <strong>${oficiosTxt}</strong> ha sido verificada y aprobada con éxito.
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <table role="presentation" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="font-size: 18px; vertical-align: top; width: 28px;">🎉</td>
+                  <td style="font-size: 14px; color: #334155; line-height: 1.5;">
+                    <strong style="color: #1e293b;">Oficio desbloqueado:</strong><br />
+                    El oficio ya se encuentra cargado y disponible en tu perfil. Ya puedes seleccionarlo al crear o publicar nuevos servicios para tus clientes.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          ¡Muchos éxitos ofreciendo tus servicios en ExpertoYa!
+        </p>
+      `,
+      ctaText: "Crear Nuevo Servicio",
+      ctaUrl: "http://localhost:5173",
+      extraNote: "Accede a la app móvil para ver tu oficio activo y comenzar a publicar.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject: `¡Tu matrícula para ${oficiosTxt} ha sido aprobada! 🎉`,
+        html,
+      });
+      console.log(`[Email Service] Correo de matrícula aprobada enviado a: ${to}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de matrícula aprobada:",
+        error,
+      );
+    }
+  }
+
+  // 10. Correo de Rechazo de Matrícula para Oficio Específico
+  public async sendMatriculaRejectedEmail(
+    to: string,
+    nombre: string,
+    oficios: string[],
+    motivo: string,
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de rechazo de matrícula para: ${to} (${nombre}) - Oficios: ${oficios.join(", ")} - Motivo: ${motivo}`,
+      );
+      return;
+    }
+
+    const oficiosTxt = oficios.length > 0 ? oficios.join(", ") : "tu especialidad";
+    const html = this.getBaseTemplate({
+      badgeText: "⚠️ Revisión de Matrícula",
+      badgeBgColor: "#fff7ed",
+      badgeTextColor: "#c2410c",
+      badgeBorderColor: "#fed7aa",
+      heading: `Hola ${nombre}, <br />observación en tu matrícula.`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Hemos revisado el documento adjuntado para validar la matrícula de <strong>${oficiosTxt}</strong>, pero lamentablemente no pudo ser aprobada en esta oportunidad.
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <p style="margin: 0 0 6px 0; color: #9f1239; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                Motivo de la observación:
+              </p>
+              <p style="margin: 0; color: #881337; font-size: 15px; line-height: 1.5; font-weight: 600;">
+                ${motivo}
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 16px 0;">
+          <strong>Importante:</strong> Tu cuenta profesional y el resto de tus oficios aprobados continúan plenamente activos y operando normalmente.
+        </p>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          Para validar este oficio, ingresa a la aplicación móvil, dirígete a "Editar Perfil" y adjunta un nuevo archivo PDF con la matrícula correspondiente.
+        </p>
+      `,
+      ctaText: "Ir a Editar Perfil",
+      ctaUrl: "http://localhost:5173",
+      extraNote: "Estaremos atentos al envío del documento corregido para revisarlo a la brevedad.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject: `Observación sobre tu documentación de matrícula (${oficiosTxt}) ⚠️`,
+        html,
+      });
+      console.log(`[Email Service] Correo de matrícula rechazada enviado a: ${to}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de matrícula rechazada:",
+        error,
+      );
+    }
+  }
 }
 
 const emailService = EmailService.getInstance();
@@ -597,5 +869,40 @@ export const sendPasswordResetEmail = (
   resetUrl: string,
 ) => emailService.sendPasswordResetEmail(to, nombre, resetToken, resetUrl);
 
+export const sendMatriculaSubmittedEmail = (
+  to: string,
+  nombre: string,
+  oficios: string[],
+) => emailService.sendMatriculaSubmittedEmail(to, nombre, oficios);
+
+export const sendAdminNewMatriculaEmail = (
+  adminEmail: string,
+  profesionalNombre: string,
+  profesionalEmail: string,
+  oficios: string[],
+  documentoUrl?: string,
+) =>
+  emailService.sendAdminNewMatriculaEmail(
+    adminEmail,
+    profesionalNombre,
+    profesionalEmail,
+    oficios,
+    documentoUrl,
+  );
+
+export const sendMatriculaApprovedEmail = (
+  to: string,
+  nombre: string,
+  oficios: string[],
+) => emailService.sendMatriculaApprovedEmail(to, nombre, oficios);
+
+export const sendMatriculaRejectedEmail = (
+  to: string,
+  nombre: string,
+  oficios: string[],
+  motivo: string,
+) => emailService.sendMatriculaRejectedEmail(to, nombre, oficios, motivo);
+
 export default emailService;
+
 
