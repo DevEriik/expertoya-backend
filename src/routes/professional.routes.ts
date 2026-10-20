@@ -83,7 +83,11 @@ const upload = multer({
 router.use(verifyToken);
 
 router.get("/profile", getProfile);
-router.put("/profile", updateProfile);
+router.put(
+  "/profile",
+  upload.fields([{ name: "matricula_documento", maxCount: 5 }]),
+  updateProfile,
+);
 router.get("/availability", getAvailability);
 router.put("/availability", updateAvailability);
 
