@@ -3,242 +3,906 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+interface TemplateOptions {
+  badgeText: string;
+  badgeBgColor?: string;
+  badgeTextColor?: string;
+  badgeBorderColor?: string;
+  heading: string;
+  bodyHtml: string;
+  ctaText?: string;
+  ctaUrl?: string;
+  extraNote?: string;
+}
+
 class EmailService {
-    private transporter: Transporter;
-    private static instance: EmailService;
+  private transporter: Transporter;
+  private static instance: EmailService;
 
-    private constructor() {
-        this.transporter = nodemailer.createTransport({
-            service: "gmail",
-            auth: {
-                user: process.env.GMAIL_USER,
-                pass: process.env.GMAIL_APP_PASSWORD,
-            },
-        });
+  private constructor() {
+    this.transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD,
+      },
+    });
+  }
+
+  public static getInstance(): EmailService {
+    if (!EmailService.instance) {
+      EmailService.instance = new EmailService();
     }
+    return EmailService.instance;
+  }
 
-    public static getInstance(): EmailService {
-        if (!EmailService.instance) {
-            EmailService.instance = new EmailService();
-        }
-        return EmailService.instance;
-    }
+  private hasCredentials(): boolean {
+    return Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+  }
 
-    public async sendApprovalEmail(to: string, nombre: string): Promise<void> {
-        const subject = "¡Tu perfil de ExpertoYa ha sido aprobado! 🎉";
-        const html = this.getApprovalTemplate(nombre);
+  private getBaseTemplate(options: TemplateOptions): string {
+    const {
+      badgeText,
+      badgeBgColor = "#ecfdf5",
+      badgeTextColor = "#047857",
+      badgeBorderColor = "#a7f3d0",
+      heading,
+      bodyHtml,
+      ctaText,
+      ctaUrl,
+      extraNote,
+    } = options;
 
-        await this.transporter.sendMail({
-            from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
-            to,
-            subject,
-            html,
-        });
-    }
-
-    public async sendRejectionEmail(to: string, nombre: string, motivo: string): Promise<void> {
-        const subject = "Actualización sobre tu perfil de ExpertoYa ⚠️";
-        const html = this.getRejectionTemplate(nombre, motivo);
-
-        await this.transporter.sendMail({
-            from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
-            to,
-            subject,
-            html,
-        });
-    }
-
-    public async sendOnboardingSubmittedEmail(to: string, nombre: string): Promise<void> {
-        const subject = "¡Documentación recibida! Tu solicitud en ExpertoYa está en revisión 📄";
-        const html = this.getOnboardingSubmittedTemplate(nombre);
-
-        await this.transporter.sendMail({
-            from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
-            to,
-            subject,
-            html,
-        });
-    }
-
-    public async sendAdminNewSolicitudEmail(
-        adminEmail: string,
-        profesionalNombre: string,
-        profesionalEmail: string,
-        oficios: string[]
-    ): Promise<void> {
-        const subject = `Nueva solicitud de acreditación: ${profesionalNombre} 📋`;
-        const html = this.getAdminNewSolicitudTemplate(profesionalNombre, profesionalEmail, oficios);
-
-        await this.transporter.sendMail({
-            from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
-            to: adminEmail,
-            subject,
-            html,
-        });
-    }
-
-    private getBaseTemplate(title: string, body: string, isSuccess: boolean): string {
-        const accentColor = isSuccess ? "#10B981" : "#EF4444"; // Success o Danger Semántico
-        return `
+    return `
       <!DOCTYPE html>
       <html lang="es">
       <head>
-        <meta charset="UTF-8">
+        <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
-        <style>
-          body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            background-color: #FDFCF4; /* Crema Fondo */
-            color: #283593; /* Índigo Texto */
-            margin: 0;
-            padding: 0;
-          }
-          .container {
-            max-width: 600px;
-            margin: 40px auto;
-            background-color: #ffffff;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-            overflow: hidden;
-            border-top: 6px solid #FF8C00; /* Naranja Marca */
-          }
-          .header {
-            background-color: #121826; /* Dark Mode Fondo Base */
-            padding: 30px 40px;
-            text-align: center;
-          }
-          .header h1 {
-            color: #FF8C00;
-            font-weight: 800;
-            margin: 0;
-            font-size: 28px;
-          }
-          .content {
-            padding: 40px;
-          }
-          .title {
-            color: ${accentColor};
-            font-size: 24px;
-            font-weight: 700;
-            margin-bottom: 20px;
-          }
-          .text {
-            font-size: 16px;
-            line-height: 1.6;
-            margin-bottom: 20px;
-          }
-          .box {
-            background-color: #F9FAFB;
-            border-left: 4px solid ${accentColor};
-            padding: 15px 20px;
-            margin: 20px 0;
-            border-radius: 0 8px 8px 0;
-          }
-          .footer {
-            background-color: #FDFCF4;
-            padding: 20px;
-            text-align: center;
-            font-size: 12px;
-            color: #6B7280;
-            border-top: 1px solid #E5E7EB;
-          }
-          .btn {
-            display: inline-block;
-            background-color: #00BFA5; /* Teal Acento */
-            color: white !important;
-            padding: 12px 24px;
-            text-decoration: none;
-            border-radius: 6px;
-            font-weight: 700;
-            margin-top: 20px;
-          }
-        </style>
+        <title>ExpertoYa!</title>
       </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>ExpertoYa!</h1>
-          </div>
-          <div class="content">
-            <h2 class="title">${title}</h2>
-            ${body}
-          </div>
-          <div class="footer">
-            © ${new Date().getFullYear()} ExpertoYa. Todos los derechos reservados.<br>
-            Este es un correo automático, por favor no respondas a esta dirección.
-          </div>
-        </div>
+      <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 15px;">
+          <tr>
+            <td align="center">
+              <!-- Contenedor Principal (Tarjeta blanca) -->
+              <table role="presentation" width="100%" style="max-width: 580px; background-color: #ffffff; border-radius: 20px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);" cellspacing="0" cellpadding="0">
+                
+                <!-- Barra Superior / Header Centrado con Logo Oficial -->
+                <tr>
+                  <td align="center" style="padding: 34px 40px 24px 40px; text-align: center; background-color: #ffffff;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin: 0 auto;">
+                      <tr>
+                        <td align="center" style="text-align: center;">
+                          <img
+                            src="https://gkimqfviqmhpvatsqmkz.supabase.co/storage/v1/object/public/archivos/branding/logo-expertoya-light.png"
+                            alt="ExpertoYa!"
+                            width="190"
+                            style="display: block; margin: 0 auto; max-width: 190px; width: 190px; height: auto; border: 0; outline: none; text-decoration: none;"
+                          />
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Línea Separadora entre Header y Main -->
+                <tr>
+                  <td style="padding: 0 40px;">
+                    <div style="border-top: 1px solid #e2e8f0; width: 100%; height: 1px; line-height: 1px; font-size: 1px;">&nbsp;</div>
+                  </td>
+                </tr>
+
+                <!-- Cuerpo del Correo -->
+                <tr>
+                  <td style="padding: 32px 40px 36px 40px;">
+                    
+                    <!-- Badge Estilo Píldora Semántica -->
+                    <div style="display: inline-block; background-color: ${badgeBgColor}; border: 1px solid ${badgeBorderColor}; color: ${badgeTextColor}; font-size: 12px; font-weight: 700; padding: 5px 14px; border-radius: 9999px; margin-bottom: 20px;">
+                      ${badgeText}
+                    </div>
+
+                    <!-- Titular Principal Estilo Web -->
+                    <h1 style="color: #1e293b; font-size: 26px; font-weight: 800; line-height: 1.3; margin: 0 0 18px 0; letter-spacing: -0.5px;">
+                      ${heading}
+                    </h1>
+
+                    <!-- Contenido Dinámico -->
+                    ${bodyHtml}
+
+                    <!-- Botón Principal (si aplica) -->
+                    ${
+                      ctaText && ctaUrl
+                        ? `
+                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin: 28px 0 20px 0;">
+                          <tr>
+                            <td align="center">
+                              <a href="${ctaUrl}" target="_blank" style="display: inline-block; background-color: #ff7a00; color: #ffffff !important; font-size: 15px; font-weight: 700; text-decoration: none; padding: 14px 34px; border-radius: 12px; box-shadow: 0 4px 10px rgba(255, 122, 0, 0.25);">
+                                ${ctaText}
+                              </a>
+                            </td>
+                          </tr>
+                        </table>
+                      `
+                        : ""
+                    }
+
+                    <!-- Nota Adicional (si aplica) -->
+                    ${
+                      extraNote
+                        ? `
+                        <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 16px 0 0 0; text-align: center;">
+                          ${extraNote}
+                        </p>
+                      `
+                        : ""
+                    }
+
+                  </td>
+                </tr>
+
+                <!-- Footer Limpio Unificado -->
+                <tr>
+                  <td style="background-color: #f8fafc; padding: 24px 40px; text-align: center; border-top: 1px solid #f1f5f9;">
+                    <p style="color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0;">
+                      Has recibido este correo como parte de tu actividad en <strong>ExpertoYa!</strong>.<br />
+                      &copy; ${new Date().getFullYear()} ExpertoYa - Neuquén, Plottier y Cipolletti.
+                    </p>
+                  </td>
+                </tr>
+
+              </table>
+            </td>
+          </tr>
+        </table>
       </body>
       </html>
     `;
+  }
+
+  // 1. Correo de Bienvenida a Usuarios
+  public async sendWelcomeEmail(email: string, nombre: string): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de bienvenida para: ${email} (${nombre})`,
+      );
+      return;
     }
 
-    private getApprovalTemplate(nombre: string): string {
-        const title = "✅ ¡Bienvenido a la red de Expertos!";
-        const body = `
-      <p class="text">Hola <strong>${nombre}</strong>,</p>
-      <p class="text">Nos alegra informarte que nuestro equipo ha validado tu documentación exitosamente. Tu perfil profesional ya se encuentra <strong>activo y visible</strong> para todos los clientes en tu área.</p>
-      <p class="text">Ya puedes ingresar a la app para empezar a recibir solicitudes de trabajo y ofrecer tus servicios.</p>
-      <center><a href="https://expertoya.com/login" class="btn">Ir a mi Panel de Control</a></center>
-    `;
-        return this.getBaseTemplate(title, body, true);
+    const html = this.getBaseTemplate({
+      badgeText: "✨ Comunidad de Confianza y Calidad",
+      badgeBgColor: "#ecfdf5",
+      badgeTextColor: "#047857",
+      badgeBorderColor: "#a7f3d0",
+      heading: `¡Hola ${nombre}! <br />Tu cuenta ya está lista.`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
+          Te damos la bienvenida a <strong>ExpertoYa!</strong>, la solución ágil y segura para conectar con los mejores oficios para tu hogar o para impulsar tu trabajo ofreciendo tus servicios a clientes de tu zona.
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 10px;">
+          <tr>
+            <td>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="padding-bottom: 14px;">
+                    <table role="presentation" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size: 18px; vertical-align: top; width: 28px;">🔍</td>
+                        <td style="font-size: 14px; color: #334155; line-height: 1.5;">
+                          <strong>Para quienes necesitan arreglos:</strong> Encuentra profesionales certificados en plomería, electricidad, gas o carpintería con pagos resguardados y ubicación cercana.
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <table role="presentation" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="font-size: 18px; vertical-align: top; width: 28px;">🛠️</td>
+                        <td style="font-size: 14px; color: #334155; line-height: 1.5;">
+                          <strong>Para profesionales y expertos:</strong> Valida tu matrícula, publica tus trabajos con ayuda de nuestra IA y administra solicitudes de forma transparente.
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      `,
+      ctaText: "Ingresar a la Plataforma",
+      ctaUrl: "http://localhost:5173",
+      extraNote:
+        "Puedes acceder a tu cuenta tanto desde el navegador web como desde nuestra aplicación móvil.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to: email,
+        subject: `¡Te damos la bienvenida a ExpertoYa!, ${nombre}`,
+        text: `¡Hola ${nombre}!\n\nTe damos la bienvenida a ExpertoYa!, la plataforma donde encuentras especialistas de confianza para tu hogar y conectas con clientes de tu zona.\n\nTu cuenta ya está lista. Entra a http://localhost:5173 para empezar.\n\nEquipo de ExpertoYa © ${new Date().getFullYear()}`,
+        html,
+      });
+      console.log(`[Email Service] Correo de bienvenida enviado a: ${email}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de bienvenida:",
+        error,
+      );
+    }
+  }
+
+  // 2. Correo de Aprobación de Profesional
+  public async sendApprovalEmail(to: string, nombre: string): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de aprobación para: ${to} (${nombre})`,
+      );
+      return;
     }
 
-    private getRejectionTemplate(nombre: string, motivo: string): string {
-        const title = "⚠️ Necesitamos que revises tu legajo";
-        const body = `
-      <p class="text">Hola <strong>${nombre}</strong>,</p>
-      <p class="text">Durante la auditoría de tu perfil profesional, hemos detectado un inconveniente con los documentos enviados y tu legajo ha sido rechazado temporalmente.</p>
-      <div class="box">
-        <p style="margin: 0;"><strong>Motivo del rechazo:</strong></p>
-        <p style="margin: 10px 0 0 0; color: #283593;">${motivo}</p>
-      </div>
-      <p class="text">Para activar tu perfil, por favor ingresa nuevamente a la aplicación y carga la documentación corregida.</p>
-      <center><a href="https://expertoya.com/login" style="background-color: #FF8C00;" class="btn">Subir nueva documentación</a></center>
-    `;
-        return this.getBaseTemplate(title, body, false);
+    const html = this.getBaseTemplate({
+      badgeText: "✅ Perfil Profesional Acreditado",
+      badgeBgColor: "#ecfdf5",
+      badgeTextColor: "#047857",
+      badgeBorderColor: "#a7f3d0",
+      heading: `¡Felicitaciones, ${nombre}! <br />Tu perfil ha sido aprobado.`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Nos alegra informarte que nuestro equipo ha validado tu documentación exitosamente. Tu perfil profesional ya se encuentra <strong>activo y visible</strong> para todos los clientes en tu área.
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 10px;">
+          <tr>
+            <td>
+              <table role="presentation" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="font-size: 18px; vertical-align: top; width: 28px;">🛡️</td>
+                  <td style="font-size: 14px; color: #334155; line-height: 1.5;">
+                    <strong>Legajo verificado:</strong> Tus certificados de identidad, situación fiscal y habilitaciones oficiales cumplen con los estándares de seguridad de ExpertoYa.
+                  </td>
+                </tr>
+                <tr>
+                  <td style="font-size: 18px; vertical-align: top; width: 28px; padding-top: 12px;">💼</td>
+                  <td style="font-size: 14px; color: #334155; line-height: 1.5; padding-top: 12px;">
+                    <strong>Listo para operar:</strong> Ya puedes ingresar a la app para publicar nuevos servicios y empezar a recibir solicitudes de clientes de tu zona.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      `,
+      ctaText: "Ir a mi Panel de Control",
+      ctaUrl: "http://localhost:5173/login",
+      extraNote:
+        "Accede desde la aplicación móvil o el sitio web para gestionar tus servicios y solicitudes.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject: "¡Tu perfil de ExpertoYa ha sido aprobado! 🎉",
+        html,
+      });
+      console.log(`[Email Service] Correo de aprobación enviado a: ${to}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de aprobación:",
+        error,
+      );
+    }
+  }
+
+  // 3. Correo de Rechazo / Corrección de Documentación
+  public async sendRejectionEmail(
+    to: string,
+    nombre: string,
+    motivo: string,
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de rechazo para: ${to} (${nombre}) - Motivo: ${motivo}`,
+      );
+      return;
     }
 
-    private getOnboardingSubmittedTemplate(nombre: string): string {
-        const title = "📄 Documentación en proceso de revisión";
-        const body = `
-      <p class="text">Hola <strong>${nombre}</strong>,</p>
-      <p class="text">Hemos recibido correctamente tus documentos de identidad, situación fiscal y constancias de oficio para operar en ExpertoYa.</p>
-      <div class="box">
-        <p style="margin: 0; color: #283593;"><strong>Estado:</strong> En cola de validación</p>
-        <p style="margin: 5px 0 0 0; font-size: 14px; color: #4B5563;">Nuestro equipo de administración auditará tu legajo en menos de 24 horas hábiles. Te enviaremos un correo apenas tu cuenta quede habilitada.</p>
-      </div>
-      <p class="text">¡Gracias por sumarte a la comunidad de profesionales de ExpertoYa!</p>
-    `;
-        return this.getBaseTemplate(title, body, true);
+    const html = this.getBaseTemplate({
+      badgeText: "⚠️ Revisión de Legajo Requerida",
+      badgeBgColor: "#fff7ed",
+      badgeTextColor: "#c2410c",
+      badgeBorderColor: "#fed7aa",
+      heading: `Hola ${nombre}, <br />necesitamos que revises tu legajo.`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Durante la auditoría de tu perfil profesional, hemos detectado un inconveniente con los documentos enviados y tu legajo ha sido rechazado temporalmente.
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <p style="margin: 0 0 6px 0; color: #9f1239; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                Motivo del rechazo:
+              </p>
+              <p style="margin: 0; color: #881337; font-size: 15px; line-height: 1.5; font-weight: 600;">
+                ${motivo}
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          Para activar tu perfil, ingresa nuevamente a la aplicación, corrige la documentación observada y vuelve a enviarla. Nuestro equipo la revisará a la brevedad.
+        </p>
+      `,
+      ctaText: "Subir Nueva Documentación",
+      ctaUrl: "http://localhost:5173/login",
+      extraNote:
+        "Si tienes dudas sobre qué documento subir, puedes comunicarte con el equipo de soporte.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject: "Actualización sobre tu perfil de ExpertoYa ⚠️",
+        html,
+      });
+      console.log(`[Email Service] Correo de rechazo enviado a: ${to}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de rechazo:",
+        error,
+      );
+    }
+  }
+
+  // 4. Correo de Documentación de Onboarding Enviada
+  public async sendOnboardingSubmittedEmail(
+    to: string,
+    nombre: string,
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de onboarding enviado para: ${to} (${nombre})`,
+      );
+      return;
     }
 
-    private getAdminNewSolicitudTemplate(
-        nombre: string,
-        email: string,
-        oficios: string[]
-    ): string {
-        const title = "🔔 Nueva solicitud de validación profesional";
-        const oficiosHtml = oficios.length > 0
-            ? oficios.map((o) => `<li>${o}</li>`).join("")
-            : "<li>Ningún oficio especificado</li>";
+    const html = this.getBaseTemplate({
+      badgeText: "📄 Documentación en Revisión",
+      badgeBgColor: "#eff6ff",
+      badgeTextColor: "#1d4ed8",
+      badgeBorderColor: "#bfdbfe",
+      heading: `Hola ${nombre}, <br />recibimos tu documentación.`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Hemos recibido correctamente tus documentos de identidad, situación fiscal y constancias de oficio para operar en ExpertoYa.
+        </p>
 
-        const body = `
-      <p class="text">Un nuevo profesional ha completado el registro y subido sus documentos:</p>
-      <div class="box">
-        <p style="margin: 0;"><strong>Profesional:</strong> ${nombre}</p>
-        <p style="margin: 5px 0 0 0;"><strong>Email:</strong> ${email}</p>
-        <p style="margin: 10px 0 0 0;"><strong>Oficios postulados:</strong></p>
-        <ul style="margin: 5px 0 0 0; padding-left: 20px; color: #283593;">
-          ${oficiosHtml}
-        </ul>
-      </div>
-      <p class="text">Por favor, ingresa al panel de administración para auditar los documentos y aprobar o rechazar la solicitud.</p>
-      <center><a href="http://localhost:5173/admin" class="btn">Ir al Panel de Administración</a></center>
-    `;
-        return this.getBaseTemplate(title, body, false);
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <table role="presentation" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="font-size: 18px; vertical-align: top; width: 28px;">⏳</td>
+                  <td style="font-size: 14px; color: #334155; line-height: 1.5;">
+                    <strong style="color: #1e293b;">Estado:</strong> En cola de validación.<br />
+                    <span style="color: #64748b; font-size: 13px;">Nuestro equipo de administración auditará tu legajo en menos de 24 horas hábiles. Te avisaremos apenas tu cuenta quede habilitada.</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          ¡Gracias por sumarte a la comunidad de profesionales de ExpertoYa!
+        </p>
+      `,
+      ctaText: "Ir a la Aplicación",
+      ctaUrl: "http://localhost:5173",
+      extraNote:
+        "Te notificaremos por correo electrónico ante cualquier actualización sobre tu solicitud.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject:
+          "¡Documentación recibida! Tu solicitud en ExpertoYa está en revisión 📄",
+        html,
+      });
+      console.log(
+        `[Email Service] Correo de onboarding recibido enviado a: ${to}`,
+      );
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de onboarding:",
+        error,
+      );
     }
+  }
+
+  // 5. Correo para Administradores por Nueva Solicitud
+  public async sendAdminNewSolicitudEmail(
+    adminEmail: string,
+    profesionalNombre: string,
+    profesionalEmail: string,
+    oficios: string[],
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo para admin (${adminEmail}): Solicitud de ${profesionalNombre}`,
+      );
+      return;
+    }
+
+    const oficiosHtml =
+      oficios.length > 0
+        ? oficios
+            .map(
+              (o) =>
+                `<li style="margin-bottom: 4px; color: #1e293b; font-weight: 600;">${o}</li>`,
+            )
+            .join("")
+        : "<li>Ningún oficio especificado</li>";
+
+    const html = this.getBaseTemplate({
+      badgeText: "🔔 Auditoría Pendiente",
+      badgeBgColor: "#fef3c7",
+      badgeTextColor: "#b45309",
+      badgeBorderColor: "#fde68a",
+      heading: "Nueva solicitud de validación profesional",
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Un nuevo profesional ha completado el registro y cargado su documentación en la plataforma:
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #334155;">
+                <strong>Profesional:</strong> ${profesionalNombre}
+              </p>
+              <p style="margin: 0 0 12px 0; font-size: 14px; color: #334155;">
+                <strong>Email:</strong> ${profesionalEmail}
+              </p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #334155;">
+                <strong>Oficios postulados:</strong>
+              </p>
+              <ul style="margin: 0; padding-left: 20px; font-size: 14px;">
+                ${oficiosHtml}
+              </ul>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          Por favor, ingresa al panel de administración para auditar los documentos y aprobar o rechazar la solicitud.
+        </p>
+      `,
+      ctaText: "Ir al Panel de Administración",
+      ctaUrl: "http://localhost:5173/admin",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to: adminEmail,
+        subject: `Nueva solicitud de acreditación: ${profesionalNombre} 📋`,
+        html,
+      });
+      console.log(
+        `[Email Service] Notificación de admin enviada a: ${adminEmail}`,
+      );
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de admin:",
+        error,
+      );
+    }
+  }
+
+  // 6. Correo de Recuperación de Contraseña
+  public async sendPasswordResetEmail(
+    to: string,
+    nombre: string,
+    resetToken: string,
+    resetUrl: string,
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de recuperación de contraseña para: ${to} (${nombre}) - Token: ${resetToken} - URL: ${resetUrl}`,
+      );
+      return;
+    }
+
+    const html = this.getBaseTemplate({
+      badgeText: "🔐 Seguridad de tu Cuenta",
+      badgeBgColor: "#fff7ed",
+      badgeTextColor: "#c2410c",
+      badgeBorderColor: "#fed7aa",
+      heading: `Recupera tu contraseña, <br />${nombre}`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Hemos recibido una solicitud para restablecer la contraseña asociada a tu cuenta de <strong>ExpertoYa!</strong>.
+        </p>
+
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
+          Para establecer una nueva clave de acceso, por favor haz clic en el botón de abajo:
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 14px; padding: 20px; margin: 20px 0; text-align: center;">
+          <tr>
+            <td align="center">
+              <p style="margin: 0 0 8px 0; color: #64748b; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                Código / Token de Seguridad para App Móvil
+              </p>
+              <div style="margin: 0; padding: 10px 14px; background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; display: inline-block; max-width: 100%;">
+                <code style="color: #283593; font-size: 13px; font-weight: 700; word-break: break-all; letter-spacing: 0.5px;">
+                  ${resetToken}
+                </code>
+              </div>
+              <p style="margin: 10px 0 0 0; color: #94a3b8; font-size: 12px;">
+                Si estás usando la aplicación móvil, puedes copiar este código en la pantalla de recuperación.
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 20px 0 0 0;">
+          Por razones de seguridad, este enlace y token tienen una validez de <strong>1 hora</strong>. Si no solicitaste este cambio, puedes ignorar este mensaje; tu contraseña actual continuará siendo segura.
+        </p>
+      `,
+      ctaText: "Restablecer mi Contraseña",
+      ctaUrl: resetUrl,
+      extraNote:
+        "Si tienes problemas con el botón, copia y pega el enlace o introduce el código directamente en la app.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject: "Recuperación de contraseña - ExpertoYa! 🔐",
+        text: `Hola ${nombre}!\n\nHemos recibido una solicitud para restablecer tu contraseña en ExpertoYa.\n\nPuedes restablecerla ingresando a este enlace:\n${resetUrl}\n\nO utilizando el token de seguridad en la aplicación:\n${resetToken}\n\nEste enlace expira en 1 hora. Si no realizaste la solicitud, ignora este mensaje.\n\nEquipo de ExpertoYa! © ${new Date().getFullYear()}`,
+        html,
+      });
+      console.log(
+        `[Email Service] Correo de recuperación de contraseña enviado a: ${to}`,
+      );
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de recuperación:",
+        error,
+      );
+    }
+  }
+
+  // 7. Correo al Profesional cuando envía nueva documentación de Matrícula
+  public async sendMatriculaSubmittedEmail(
+    to: string,
+    nombre: string,
+    oficios: string[],
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de recepción de matrícula para: ${to} (${nombre}) - Oficios: ${oficios.join(", ")}`,
+      );
+      return;
+    }
+
+    const oficiosTxt = oficios.length > 0 ? oficios.join(", ") : "Oficio solicitado";
+    const html = this.getBaseTemplate({
+      badgeText: "📄 Documentación en Revisión",
+      badgeBgColor: "#eff6ff",
+      badgeTextColor: "#1d4ed8",
+      badgeBorderColor: "#bfdbfe",
+      heading: `Hola ${nombre}, <br />recibimos tu matrícula.`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Hemos recibido correctamente el archivo en formato PDF adjuntado para validar tu habilitación oficial en <strong>${oficiosTxt}</strong>.
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <table role="presentation" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="font-size: 18px; vertical-align: top; width: 28px;">⏳</td>
+                  <td style="font-size: 14px; color: #334155; line-height: 1.5;">
+                    <strong style="color: #1e293b;">Estado de la matrícula:</strong> En auditoría.<br />
+                    <span style="color: #64748b; font-size: 13px;">Un administrador revisará la documentación enviada para habilitar este oficio en tu perfil. <strong>Estaremos haciéndote llegar las novedades.</strong></span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          Tus otros oficios ya aprobados continúan activos con normalidad.
+        </p>
+      `,
+      ctaText: "Ver mi Perfil",
+      ctaUrl: "http://localhost:5173",
+      extraNote: "Estaremos haciéndote llegar las novedades en cuanto concluya la revisión.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject: `Recibimos tu documentación de matrícula: ${oficiosTxt} 📄`,
+        html,
+      });
+      console.log(`[Email Service] Correo de matrícula recibida enviado a: ${to}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de matrícula recibida:",
+        error,
+      );
+    }
+  }
+
+  // 8. Correo al Administrador cuando un profesional ya auditado sube nueva matrícula
+  public async sendAdminNewMatriculaEmail(
+    adminEmail: string,
+    profesionalNombre: string,
+    profesionalEmail: string,
+    oficios: string[],
+    documentoUrl?: string,
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo para admin (${adminEmail}): Nueva matrícula de profesional auditado ${profesionalNombre}`,
+      );
+      return;
+    }
+
+    const oficiosTxt = oficios.length > 0 ? oficios.join(", ") : "Oficio sin especificar";
+    const html = this.getBaseTemplate({
+      badgeText: "⭐ Profesional Auditado - Nueva Matrícula",
+      badgeBgColor: "#fef3c7",
+      badgeTextColor: "#b45309",
+      badgeBorderColor: "#fde68a",
+      heading: "Nueva matrícula adjunta para validar",
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Un profesional que <strong>ya se encuentra auditado y activo</strong> ha adjuntado nueva documentación en formato PDF para habilitar un nuevo oficio con matrícula legal:
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #334155;">
+                <strong>Profesional:</strong> ${profesionalNombre}
+              </p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #334155;">
+                <strong>Email:</strong> ${profesionalEmail}
+              </p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #334155;">
+                <strong>Oficio(s) con matrícula a validar:</strong> <span style="color: #c2410c; font-weight: 700;">${oficiosTxt}</span>
+              </p>
+              <p style="margin: 0; font-size: 13px; color: #047857; font-weight: 600;">
+                ✓ Cuenta profesional previamente verificada
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          Por favor, revisa el archivo PDF adjuntado desde el panel de administración para aprobar o rechazar esta habilitación.
+        </p>
+      `,
+      ctaText: "Auditar Matrícula en Backoffice",
+      ctaUrl: "http://localhost:5173/admin",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to: adminEmail,
+        subject: `Nueva matrícula adjunta para validar: ${profesionalNombre} (${oficiosTxt}) 📋`,
+        html,
+      });
+      console.log(`[Email Service] Notificación de nueva matrícula enviada al admin: ${adminEmail}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de nueva matrícula a admin:",
+        error,
+      );
+    }
+  }
+
+  // 9. Correo de Aprobación de Matrícula para Oficio Específico
+  public async sendMatriculaApprovedEmail(
+    to: string,
+    nombre: string,
+    oficios: string[],
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de matrícula aprobada para: ${to} (${nombre}) - Oficios: ${oficios.join(", ")}`,
+      );
+      return;
+    }
+
+    const oficiosTxt = oficios.length > 0 ? oficios.join(", ") : "tu especialidad";
+    const html = this.getBaseTemplate({
+      badgeText: "✅ Matrícula Habilitada",
+      badgeBgColor: "#ecfdf5",
+      badgeTextColor: "#047857",
+      badgeBorderColor: "#a7f3d0",
+      heading: `¡Felicitaciones, ${nombre}! <br />Tu matrícula ha sido aprobada.`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Nos complace informarte que la documentación oficial que adjuntaste para <strong>${oficiosTxt}</strong> ha sido verificada y aprobada con éxito.
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <table role="presentation" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="font-size: 18px; vertical-align: top; width: 28px;">🎉</td>
+                  <td style="font-size: 14px; color: #334155; line-height: 1.5;">
+                    <strong style="color: #1e293b;">Oficio desbloqueado:</strong><br />
+                    El oficio ya se encuentra cargado y disponible en tu perfil. Ya puedes seleccionarlo al crear o publicar nuevos servicios para tus clientes.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          ¡Muchos éxitos ofreciendo tus servicios en ExpertoYa!
+        </p>
+      `,
+      ctaText: "Crear Nuevo Servicio",
+      ctaUrl: "http://localhost:5173",
+      extraNote: "Accede a la app móvil para ver tu oficio activo y comenzar a publicar.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject: `¡Tu matrícula para ${oficiosTxt} ha sido aprobada! 🎉`,
+        html,
+      });
+      console.log(`[Email Service] Correo de matrícula aprobada enviado a: ${to}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de matrícula aprobada:",
+        error,
+      );
+    }
+  }
+
+  // 10. Correo de Rechazo de Matrícula para Oficio Específico
+  public async sendMatriculaRejectedEmail(
+    to: string,
+    nombre: string,
+    oficios: string[],
+    motivo: string,
+  ): Promise<void> {
+    if (!this.hasCredentials()) {
+      console.log(
+        `[Email Service Simulado] Correo de rechazo de matrícula para: ${to} (${nombre}) - Oficios: ${oficios.join(", ")} - Motivo: ${motivo}`,
+      );
+      return;
+    }
+
+    const oficiosTxt = oficios.length > 0 ? oficios.join(", ") : "tu especialidad";
+    const html = this.getBaseTemplate({
+      badgeText: "⚠️ Revisión de Matrícula",
+      badgeBgColor: "#fff7ed",
+      badgeTextColor: "#c2410c",
+      badgeBorderColor: "#fed7aa",
+      heading: `Hola ${nombre}, <br />observación en tu matrícula.`,
+      bodyHtml: `
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px 0;">
+          Hemos revisado el documento adjuntado para validar la matrícula de <strong>${oficiosTxt}</strong>, pero lamentablemente no pudo ser aprobada en esta oportunidad.
+        </p>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+          <tr>
+            <td>
+              <p style="margin: 0 0 6px 0; color: #9f1239; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                Motivo de la observación:
+              </p>
+              <p style="margin: 0; color: #881337; font-size: 15px; line-height: 1.5; font-weight: 600;">
+                ${motivo}
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 16px 0;">
+          <strong>Importante:</strong> Tu cuenta profesional y el resto de tus oficios aprobados continúan plenamente activos y operando normalmente.
+        </p>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0;">
+          Para validar este oficio, ingresa a la aplicación móvil, dirígete a "Editar Perfil" y adjunta un nuevo archivo PDF con la matrícula correspondiente.
+        </p>
+      `,
+      ctaText: "Ir a Editar Perfil",
+      ctaUrl: "http://localhost:5173",
+      extraNote: "Estaremos atentos al envío del documento corregido para revisarlo a la brevedad.",
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject: `Observación sobre tu documentación de matrícula (${oficiosTxt}) ⚠️`,
+        html,
+      });
+      console.log(`[Email Service] Correo de matrícula rechazada enviado a: ${to}`);
+    } catch (error) {
+      console.error(
+        "[Email Service Error] No se pudo enviar el correo de matrícula rechazada:",
+        error,
+      );
+    }
+  }
 }
 
-export default EmailService.getInstance();
+const emailService = EmailService.getInstance();
+
+export const sendWelcomeEmail = (email: string, nombre: string) =>
+  emailService.sendWelcomeEmail(email, nombre);
+
+export const sendPasswordResetEmail = (
+  to: string,
+  nombre: string,
+  resetToken: string,
+  resetUrl: string,
+) => emailService.sendPasswordResetEmail(to, nombre, resetToken, resetUrl);
+
+export const sendMatriculaSubmittedEmail = (
+  to: string,
+  nombre: string,
+  oficios: string[],
+) => emailService.sendMatriculaSubmittedEmail(to, nombre, oficios);
+
+export const sendAdminNewMatriculaEmail = (
+  adminEmail: string,
+  profesionalNombre: string,
+  profesionalEmail: string,
+  oficios: string[],
+  documentoUrl?: string,
+) =>
+  emailService.sendAdminNewMatriculaEmail(
+    adminEmail,
+    profesionalNombre,
+    profesionalEmail,
+    oficios,
+    documentoUrl,
+  );
+
+export const sendMatriculaApprovedEmail = (
+  to: string,
+  nombre: string,
+  oficios: string[],
+) => emailService.sendMatriculaApprovedEmail(to, nombre, oficios);
+
+export const sendMatriculaRejectedEmail = (
+  to: string,
+  nombre: string,
+  oficios: string[],
+  motivo: string,
+) => emailService.sendMatriculaRejectedEmail(to, nombre, oficios, motivo);
+
+export default emailService;
+
+
