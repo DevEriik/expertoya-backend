@@ -8,7 +8,7 @@ import adminRoutes from "./src/routes/admin.routes";
 import professionalRoutes from "./src/routes/professional.routes";
 import profesionalesRoutes from "./src/routes/professional.routes";
 import profesionesRoutes from "./src/routes/profesiones.routes";
-
+import iaRoutes from "./src/routes/ia.routes";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -53,7 +53,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/professionals", professionalRoutes);
 app.use("/api/profesionales", profesionalesRoutes);
 app.use("/api/profesiones", profesionesRoutes);
-
+app.use("/api/ia", iaRoutes);
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("Error capturado por Express:", err.message);
   res.status(400).json({
