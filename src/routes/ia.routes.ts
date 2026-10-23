@@ -1,6 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
-import { analizarProblemaVisual } from "../controllers/ia.controller";
+import {
+  analizarProblemaVisual,
+  generateDescription,
+} from "../controllers/ia.controller";
 
 const router = Router();
 
@@ -29,5 +32,6 @@ const uploadMiddleware = (req: Request, res: Response, next: NextFunction) => {
 };
 
 router.post("/diagnostico-visual", uploadMiddleware, analizarProblemaVisual);
+router.post("/generate-description", generateDescription);
 
 export default router;
