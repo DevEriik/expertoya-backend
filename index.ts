@@ -2,6 +2,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import express, { Request, Response, NextFunction } from "express";
+import http from "http";
+import { Server } from "socket.io";
 import cors from "cors";
 import authRoutes from "./src/routes/auth.routes";
 import adminRoutes from "./src/routes/admin.routes";
@@ -10,7 +12,9 @@ import profesionalesRoutes from "./src/routes/professional.routes";
 import profesionesRoutes from "./src/routes/profesiones.routes";
 import iaRoutes from "./src/routes/ia.routes";
 import solicitudRoutes from "./src/routes/solicitud.routes";
-import { iniciarCronSolicitudes } from "./src/utils/solicitudes.cron"; 
+import { iniciarCronSolicitudes } from "./src/utils/solicitudes.cron";
+import chatRoutes from "./src/routes/chat.routes";
+import { initChatSocket } from "./src/sockets/chat.socket";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -58,6 +62,7 @@ app.use("/api/profesionales", profesionalesRoutes);
 app.use("/api/profesiones", profesionesRoutes);
 app.use("/api/ia", iaRoutes);
 app.use("/api/solicitudes", solicitudRoutes);
+app.use("/api/chat", chatRoutes);
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("Error capturado por Express:", err.message);
@@ -68,6 +73,17 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 iniciarCronSolicitudes();
 
-app.listen(PORT as number, "0.0.0.0", () => {
-  console.log(`Servidor iniciado en http://0.0.0.0:${PORT}`);
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
+});
+
+initChatSocket(io);
+
+server.listen(PORT as number, "0.0.0.0", () => {
+  console.log(`Servidor y Socket.io iniciados en http://0.0.0.0:${PORT}`);
 });
