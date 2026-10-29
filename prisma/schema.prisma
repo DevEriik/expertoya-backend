@@ -22,6 +22,7 @@ enum EstadoSolicitud {
   EN_CURSO
   FINALIZADO
   DISPUTA
+  CANCELADO_AUTO
 }
 
 enum EstadoPago {
@@ -62,6 +63,7 @@ model Usuario {
   mensajes_enviados  MensajeChat[]            @relation("RemitenteMensaje")
   resenias_dadas     Resenia[]                @relation("ReseniaCliente")
   profesionales_validados Profesional[]       @relation("AdminValidador")
+  nuevas_solicitudes Solicitud[] @relation("ClienteNuevaSolicitud")
   sesiones           Sesion[]
 
   @@map("usuario")
@@ -107,7 +109,7 @@ model Profesional {
   servicios_publicados  ServicioPublicado[]
   resenias_recibidas    Resenia[] @relation("ReseniaProfesional")
   oficios               Oficio[]  @relation("ProfesionalOficios")
-
+  solicitudes_recibidas Solicitud[] @relation("ProfesionalNuevaSolicitud")
 
   @@map("profesional")
 }
@@ -269,4 +271,23 @@ model Sesion {
   usuario Usuario @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
 
   @@map("sesion")
+}
+
+model Solicitud {
+  id              String          @id @default(uuid())
+  cliente_id      String
+  profesional_id  String
+  descripcion     String          @db.Text
+  fecha_tentativa DateTime
+  franja_horaria  String
+  estado          EstadoSolicitud @default(PENDIENTE)
+  expira_at       DateTime
+  respondida_at   DateTime?
+  creado_en       DateTime        @default(now())
+
+  // Relaciones
+  cliente         Usuario         @relation("ClienteNuevaSolicitud", fields: [cliente_id], references: [id], onDelete: Cascade)
+  profesional     Profesional     @relation("ProfesionalNuevaSolicitud", fields: [profesional_id], references: [id], onDelete: Cascade)
+
+  @@map("solicitud")
 }
