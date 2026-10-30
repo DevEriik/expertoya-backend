@@ -13,6 +13,9 @@ import profesionesRoutes from "./src/routes/profesiones.routes";
 import iaRoutes from "./src/routes/ia.routes";
 import chatRoutes from "./src/routes/chat.routes";
 import { initChatSocket } from "./src/sockets/chat.socket";
+import notificationRoutes from "./src/routes/notification.routes";
+import usuarioRoutes from "./src/routes/usuario.routes";
+import { iniciarCronNotificaciones } from "./src/jobs/notification.job";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -60,6 +63,8 @@ app.use("/api/profesionales", profesionalesRoutes);
 app.use("/api/profesiones", profesionesRoutes);
 app.use("/api/ia", iaRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/notificaciones", notificationRoutes);
+app.use("/api/usuarios", usuarioRoutes);
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("Error capturado por Express:", err.message);
@@ -81,5 +86,5 @@ initChatSocket(io);
 
 server.listen(PORT as number, "0.0.0.0", () => {
   console.log(`Servidor y Socket.io iniciados en http://0.0.0.0:${PORT}`);
+  iniciarCronNotificaciones();
 });
-

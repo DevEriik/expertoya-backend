@@ -1,6 +1,12 @@
 import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/prisma";
+import { notificar } from "../services/notification.service";
+import {
+  marcarConectado,
+  marcarDesconectado,
+  estaUsuarioConectado,
+} from "./presence";
 
 interface SocketUser {
   userId: string;
@@ -21,10 +27,13 @@ export const initChatSocket = (io: Server) => {
         socket.handshake.headers?.authorization?.replace(/^Bearer\s+/i, "");
 
       if (!token) {
-        return next(new Error("Autenticación requerida: Token no proporcionado"));
+        return next(
+          new Error("Autenticación requerida: Token no proporcionado"),
+        );
       }
 
-      const secret = process.env.JWT_SECRET || "expertoya_clave_secreta_jwt_2026";
+      const secret =
+        process.env.JWT_SECRET || "expertoya_clave_secreta_jwt_2026";
       const decoded = jwt.verify(token, secret) as SocketUser;
       socket.user = decoded;
       next();
@@ -36,7 +45,13 @@ export const initChatSocket = (io: Server) => {
 
   io.on("connection", (socket: AuthenticatedSocket) => {
     const userId = socket.user?.userId;
-    console.log(`🔌 [Socket.io] Usuario conectado al chat: ${userId} (${socket.id})`);
+    console.log(
+      `🔌 [Socket.io] Usuario conectado al chat: ${userId} (${socket.id})`,
+    );
+    if (userId) {
+      marcarConectado(userId);
+      socket.join(`usuario_${userId}`);
+    }
 
     const handleJoinSolicitud = async (data: { solicitud_id: string }) => {
       try {
@@ -67,7 +82,9 @@ export const initChatSocket = (io: Server) => {
         const roomName = `solicitud_${solicitud_id}`;
         socket.join(roomName);
 
-        const estadoActual = (solicitud.estado_solicitud_trabajo || "").toUpperCase();
+        const estadoActual = (
+          solicitud.estado_solicitud_trabajo || ""
+        ).toUpperCase();
         const bloqueado = ESTADOS_BLOQUEADOS.includes(estadoActual);
 
         socket.emit("chat_unido", {
@@ -106,7 +123,7 @@ export const initChatSocket = (io: Server) => {
           adjunto_url?: string;
           temp_id?: string;
         },
-        callback?: (response: any) => void
+        callback?: (response: any) => void,
       ) => {
         try {
           const { solicitud_id, contenido, adjunto_url, temp_id } = payload;
@@ -127,7 +144,9 @@ export const initChatSocket = (io: Server) => {
             return;
           }
 
-          const estadoActual = (solicitud.estado_solicitud_trabajo || "").toUpperCase();
+          const estadoActual = (
+            solicitud.estado_solicitud_trabajo || ""
+          ).toUpperCase();
           if (ESTADOS_BLOQUEADOS.includes(estadoActual)) {
             const errorMsg = `No se pueden enviar mensajes: El trabajo se encuentra en estado ${estadoActual}.`;
             socket.emit("chat_bloqueado", { solicitud_id, motivo: errorMsg });
@@ -162,19 +181,52 @@ export const initChatSocket = (io: Server) => {
             temp_id,
             mensaje_id: nuevoMensaje.id,
           });
+
+          const destinatarioId =
+            userId === solicitud.cliente_id
+              ? solicitud.servicio?.profesional_id
+              : solicitud.cliente_id;
+
+          if (destinatarioId && !estaUsuarioConectado(destinatarioId)) {
+            const vistaPrevia = contenido?.trim()
+              ? contenido.trim().slice(0, 80)
+              : adjunto_url
+                ? "Te enviaron un archivo adjunto"
+                : "Nuevo mensaje";
+
+            notificar(destinatarioId, {
+              tipo: "MENSAJE_CHAT",
+              titulo: "Nuevo mensaje",
+              cuerpo: vistaPrevia,
+              data: {
+                ruta: `/chat/${solicitud_id}`,
+                solicitudId: solicitud_id,
+                mensajeId: nuevoMensaje.id,
+              },
+              critica: false,
+            }).catch((error: any) =>
+              console.error(
+                "Error notificando mensaje de chat:",
+                error?.message || error,
+              ),
+            );
+          }
         } catch (error: any) {
           console.error("Error al persistir mensaje:", error.message);
           callback?.({ error: "Error interno al enviar el mensaje" });
         }
-      }
+      },
     );
 
-    socket.on("confirmar_entrega", (data: { mensaje_id: string; solicitud_id: string }) => {
-      const roomName = `solicitud_${data.solicitud_id}`;
-      socket.to(roomName).emit("mensaje_entregado", {
-        mensaje_id: data.mensaje_id,
-      });
-    });
+    socket.on(
+      "confirmar_entrega",
+      (data: { mensaje_id: string; solicitud_id: string }) => {
+        const roomName = `solicitud_${data.solicitud_id}`;
+        socket.to(roomName).emit("mensaje_entregado", {
+          mensaje_id: data.mensaje_id,
+        });
+      },
+    );
 
     socket.on("marcar_leido", async (data: { solicitud_id: string }) => {
       try {
@@ -229,18 +281,22 @@ export const initChatSocket = (io: Server) => {
         respuesta_texto?: string;
       }) => {
         try {
-          const { solicitud_id, mensaje_id, nuevo_estado, respuesta_texto } = data || {};
+          const { solicitud_id, mensaje_id, nuevo_estado, respuesta_texto } =
+            data || {};
           if (!solicitud_id || !mensaje_id || !userId) return;
 
           const mensaje = await prisma.mensajeChat.findUnique({
             where: { id: mensaje_id },
           });
 
-          if (!mensaje || !mensaje.contenido.startsWith("[PROPUESTA_VISITA]:")) return;
+          if (!mensaje || !mensaje.contenido.startsWith("[PROPUESTA_VISITA]:"))
+            return;
 
           let propuestaData: any = {};
           try {
-            propuestaData = JSON.parse(mensaje.contenido.slice("[PROPUESTA_VISITA]:".length));
+            propuestaData = JSON.parse(
+              mensaje.contenido.slice("[PROPUESTA_VISITA]:".length),
+            );
           } catch {
             return;
           }
@@ -277,10 +333,11 @@ export const initChatSocket = (io: Server) => {
         } catch (error: any) {
           console.error("Error en socket responder_propuesta:", error.message);
         }
-      }
+      },
     );
 
     socket.on("disconnect", () => {
+      if (userId) marcarDesconectado(userId);
       console.log(`🔌 [Socket.io] Usuario desconectado: ${userId}`);
     });
   });
