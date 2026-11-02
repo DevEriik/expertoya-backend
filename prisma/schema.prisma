@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
@@ -22,12 +22,51 @@ enum EstadoSolicitud {
   EN_CURSO
   FINALIZADO
   DISPUTA
+  CANCELADO
+  CANCELADO_AUTO
 }
 
 enum EstadoPago {
+  PENDIENTE
   RETENIDO
   LIBERADO
   REEMBOLSADO
+  FALLIDO
+  CANCELADO
+  EN_DISPUTA
+  CONTRACARGO
+  REVISION_MANUAL
+}
+
+enum EstadoPayout {
+  PENDIENTE
+  PROCESANDO
+  PAGADO
+  FALLIDO
+  CANCELADO
+}
+
+enum MetodoPayout {
+  SIMULADO
+  MANUAL
+  MERCADO_PAGO
+}
+
+enum TipoMovimientoPago {
+  COBRO
+  COMISION
+  FEE_MP
+  NETO_PROFESIONAL
+  PAYOUT
+  REEMBOLSO
+  CONTRACARGO
+  AJUSTE
+}
+
+enum CuentaLedger {
+  MERCADO_PAGO
+  PLATAFORMA
+  PROFESIONAL
 }
 
 enum EstadoDisputa {
@@ -43,28 +82,28 @@ enum EstadoAuditoria {
 }
 
 model Usuario {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  password_hash String
-  nombre        String
-  apellido      String
-  telefono      String?
-  foto_perfil   String?
-  fecha_nacimiento DateTime?
-  rol           Role      @default(CLIENTE)
-  creado_en     DateTime  @default(now())
-  sonidoActivo      Boolean           @default(true) @map("sonido_activo")
+  id                    String                   @id @default(uuid())
+  email                 String                   @unique
+  password_hash         String
+  nombre                String
+  apellido              String
+  telefono              String?
+  foto_perfil           String?
+  fecha_nacimiento      DateTime?
+  rol                   Role                     @default(CLIENTE)
+  creado_en             DateTime                 @default(now())
+  sonidoActivo          Boolean                  @default(true) @map("sonido_activo")
 
   // Relaciones
-  profesional        Profesional?
-  dispositivos_push DispositivoPush[]
-  notificaciones    Notificacion[]
+  profesional           Profesional?
+  dispositivos_push     DispositivoPush[]
+  notificaciones        Notificacion[]
   historial_diagnostico HistorialDiagnosticoIA[]
-  solicitudes        SolicitudTrabajo[]       @relation("ClienteSolicitud")
-  mensajes_enviados  MensajeChat[]            @relation("RemitenteMensaje")
-  resenias_dadas     Resenia[]                @relation("ReseniaCliente")
-  profesionales_validados Profesional[]       @relation("AdminValidador")
-  sesiones           Sesion[]
+  solicitudes           SolicitudTrabajo[]       @relation("ClienteSolicitud")
+  mensajes_enviados     MensajeChat[]            @relation("RemitenteMensaje")
+  resenias_dadas        Resenia[]                @relation("ReseniaCliente")
+  profesionales_validados Profesional[]          @relation("AdminValidador")
+  sesiones              Sesion[]
 
   @@map("usuario")
 }
@@ -102,6 +141,13 @@ model Profesional {
   ubicacion_geografica  String?
   latitud               Float?
   longitud              Float?
+
+  // Datos para Payout Manual
+  cbu                   String?
+  alias_cbu             String?
+  banco                 String?
+  titular_cuenta        String?
+
   usuario   Usuario  @relation(fields: [id], references: [id], onDelete: Cascade)
   validador Usuario? @relation("AdminValidador", fields: [validado_por], references: [id])
 
@@ -109,7 +155,7 @@ model Profesional {
   servicios_publicados  ServicioPublicado[]
   resenias_recibidas    Resenia[] @relation("ReseniaProfesional")
   oficios               Oficio[]  @relation("ProfesionalOficios")
-
+  payouts               Payout[]
 
   @@map("profesional")
 }
@@ -157,11 +203,11 @@ model ServicioPublicado {
 }
 
 model HistorialDiagnosticoIA {
-  id             String   @id @default(uuid())
-  cliente_id     String
-  input_cliente  String
+  id              String   @id @default(uuid())
+  cliente_id      String
+  input_cliente   String
   oficio_sugerido String?
-  fecha_consulta DateTime @default(now())
+  fecha_consulta  DateTime @default(now())
 
   cliente Usuario @relation(fields: [cliente_id], references: [id], onDelete: Cascade)
 
@@ -173,6 +219,10 @@ model SolicitudTrabajo {
   cliente_id               String
   servicio_id              String
   fecha_solicitada         DateTime
+  monto_acordado           Decimal?        @db.Decimal(12, 2)
+  confirmado_cliente_en     DateTime?
+  confirmado_profesional_en DateTime?
+  liberado_en               DateTime?
   estado_solicitud_trabajo EstadoSolicitud @default(PENDIENTE)
   actualizado_en           DateTime        @updatedAt
 
@@ -180,6 +230,8 @@ model SolicitudTrabajo {
   servicio ServicioPublicado @relation(fields: [servicio_id], references: [id], onDelete: Cascade)
 
   pagos              PagoEscrow[]
+  payout             Payout?
+  movimientos        MovimientoPago[]
   sesiones_video     SesionVideollamada[]
   disputas           Disputa[]
   mensajes           MensajeChat[]
@@ -189,17 +241,101 @@ model SolicitudTrabajo {
 }
 
 model PagoEscrow {
-  id                  String     @id @default(uuid())
-  solicitud_id        String
-  transaccion_mp_id   String?
-  monto_total         Decimal    @db.Decimal(10, 2)
-  comision_plataforma Decimal    @db.Decimal(10, 2)
-  estado_pago         EstadoPago @default(RETENIDO)
-  fecha_pago          DateTime   @default(now())
+  id                      String          @id @default(uuid())
+  solicitud_id            String
+  transaccion_mp_id       String?         @unique
+  external_reference      String?         @unique
+  mp_preference_id        String?         @unique
+  mp_status               String?
+  mp_status_detail        String?
+  mp_payment_method_id    String?
+  mp_payment_type_id      String?
+  mp_merchant_order_id    String?
+  monto_total             Decimal         @db.Decimal(12, 2)
+  comision_porcentaje     Decimal         @default(10.00) @db.Decimal(5, 2)
+  comision_plataforma     Decimal         @db.Decimal(12, 2)
+  fee_mp                  Decimal         @default(0) @db.Decimal(12, 2)
+  monto_neto_profesional  Decimal         @default(0) @db.Decimal(12, 2)
+  moneda                  String          @default("ARS")
+  estado_pago             EstadoPago      @default(PENDIENTE)
+  init_point              String?
+  sandbox_init_point      String?
+  fecha_pago              DateTime        @default(now())
+  fecha_aprobacion        DateTime?
+  fecha_liberacion        DateTime?
+  fecha_reembolso         DateTime?
+  mp_refund_id            String?
+  comprobante_numero      String?         @unique
+  comprobante_hash        String?
+  comprobante_generado_en DateTime?
+  metadata                Json?
+  creado_en               DateTime        @default(now())
+  actualizado_en          DateTime        @updatedAt
+  expiracion_preferencia  DateTime?       // AGREGAR ESTA LÍNEA
 
+  solicitud   SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+  payout      Payout?
+  movimientos MovimientoPago[]
+
+  @@index([solicitud_id])
+  @@index([estado_pago])
+  @@map("pago_escrow")
+}
+
+model Payout {
+  id              String       @id @default(uuid())
+  solicitud_id    String       @unique
+  pago_id         String       @unique
+  profesional_id  String
+  monto           Decimal      @db.Decimal(12, 2)
+  estado          EstadoPayout @default(PENDIENTE)
+  metodo          MetodoPayout @default(SIMULADO)
+  referencia      String?      @unique
+  comprobante_url String?
+  error           String?
+  creado_en       DateTime     @default(now())
+  pagado_en       DateTime?
+
+  solicitud   SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+  pago        PagoEscrow       @relation(fields: [pago_id], references: [id], onDelete: Restrict)
+  profesional Profesional      @relation(fields: [profesional_id], references: [id], onDelete: Restrict)
+
+  @@index([profesional_id, estado])
+  @@map("payout")
+}
+
+model MovimientoPago {
+  id           String             @id @default(uuid())
+  pago_id      String
+  solicitud_id String
+  tipo         TipoMovimientoPago
+  cuenta       CuentaLedger
+  monto        Decimal            @db.Decimal(12, 2)
+  moneda       String             @default("ARS")
+  referencia   String             @unique
+  descripcion  String?
+  metadata     Json?
+  creado_en    DateTime           @default(now())
+
+  pago      PagoEscrow       @relation(fields: [pago_id], references: [id], onDelete: Cascade)
   solicitud SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
 
-  @@map("pago_escrow")
+  @@index([pago_id, creado_en])
+  @@map("movimiento_pago")
+}
+
+model WebhookEvent {
+  id           String    @id @default(uuid())
+  mp_event_id  String    @unique
+  tipo         String
+  accion       String?
+  payload      Json?
+  procesado    Boolean   @default(false)
+  error        String?
+  recibido_en  DateTime  @default(now())
+  procesado_en DateTime?
+
+  @@map("webhook_event")
 }
 
 model SesionVideollamada {
