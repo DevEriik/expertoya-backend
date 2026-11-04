@@ -1,7 +1,7 @@
 import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/prisma";
-import { notificar } from "../services/notification.service";
+import { notificacionService } from "../services/notification.service";
 import {
   marcarConectado,
   marcarDesconectado,
@@ -194,22 +194,25 @@ export const initChatSocket = (io: Server) => {
                 ? "Te enviaron un archivo adjunto"
                 : "Nuevo mensaje";
 
-            notificar(destinatarioId, {
-              tipo: "MENSAJE_CHAT",
-              titulo: "Nuevo mensaje",
-              cuerpo: vistaPrevia,
-              data: {
-                ruta: `/chat/${solicitud_id}`,
-                solicitudId: solicitud_id,
-                mensajeId: nuevoMensaje.id,
-              },
-              critica: false,
-            }).catch((error: any) =>
-              console.error(
-                "Error notificando mensaje de chat:",
-                error?.message || error,
-              ),
-            );
+            notificacionService
+              .sendPushNotification(
+                destinatarioId,
+                "Nuevo mensaje",
+                vistaPrevia,
+                {
+                  type: "MENSAJE_CHAT",
+                  solicitudId: solicitud_id,
+                  ruta: `/chat/${solicitud_id}`,
+                  mensajeId: nuevoMensaje.id,
+                  critica: false,
+                } as any,
+              )
+              .catch((error: any) =>
+                console.error(
+                  "Error notificando mensaje de chat:",
+                  error?.message || error,
+                ),
+              );
           }
         } catch (error: any) {
           console.error("Error al persistir mensaje:", error.message);
