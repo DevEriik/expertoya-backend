@@ -15,6 +15,9 @@ import chatRoutes from "./src/routes/chat.routes";
 import { initChatSocket } from "./src/sockets/chat.socket";
 import notificationRoutes from "./src/routes/notification.routes";
 import usuarioRoutes from "./src/routes/usuario.routes";
+import paymentRoutes from "./src/routes/payment.routes";
+import adminPaymentRoutes from "./src/routes/admin-payment.routes";
+import webhookRoutes from "./src/routes/webhook.routes";
 import { iniciarCronNotificaciones } from "./src/jobs/notification.job";
 
 const app = express();
@@ -65,6 +68,9 @@ app.use("/api/ia", iaRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/notificaciones", notificationRoutes);
 app.use("/api/usuarios", usuarioRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/admin/payments", adminPaymentRoutes);
+app.use("/api/webhooks/mercadopago", webhookRoutes);
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("Error capturado por Express:", err.message);

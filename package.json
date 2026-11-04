@@ -6,7 +6,11 @@
   "scripts": {
     "start": "ts-node index.ts",
     "dev": "npx tsx watch index.ts",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "typecheck": "tsc --noEmit",
+    "payment:smoke": "tsx scripts/payment-smoke.ts",
+    "payment:reconcile": "tsx scripts/reconcile-payments.ts",
+    "payment:reconcile:dry": "tsx scripts/reconcile-payments.ts --dry-run"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
