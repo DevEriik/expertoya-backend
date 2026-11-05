@@ -22,12 +22,20 @@ enum EstadoSolicitud {
   EN_CURSO
   FINALIZADO
   DISPUTA
+  CANCELADO
+  CANCELADO_AUTO
 }
 
 enum EstadoPago {
   RETENIDO
   LIBERADO
   REEMBOLSADO
+  PENDIENTE
+  FALLIDO
+  CANCELADO
+  EN_DISPUTA
+  CONTRACARGO
+  REVISION_MANUAL
 }
 
 enum EstadoDisputa {
@@ -175,7 +183,9 @@ model SolicitudTrabajo {
   fecha_solicitada         DateTime
   estado_solicitud_trabajo EstadoSolicitud @default(PENDIENTE)
   actualizado_en           DateTime        @updatedAt
-
+  expira_at                DateTime?
+  descripcion              String?         @db.Text
+  franja_horaria           String?
   cliente  Usuario           @relation("ClienteSolicitud", fields: [cliente_id], references: [id], onDelete: Cascade)
   servicio ServicioPublicado @relation(fields: [servicio_id], references: [id], onDelete: Cascade)
 
