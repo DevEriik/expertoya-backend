@@ -3,6 +3,13 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+export interface EmailOptions {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+}
+
 interface TemplateOptions {
   badgeText: string;
   badgeBgColor?: string;
@@ -300,6 +307,30 @@ class EmailService {
   }
 
   // 3. Correo de Rechazo / Corrección de Documentación
+  public async sendEmail(options: EmailOptions): Promise<void> {
+    const { to, subject, html, text } = options;
+    if (!this.hasCredentials()) {
+      console.log(`[Email Service Simulado] Enviando email a: ${to} - Asunto: ${subject}`);
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: `"ExpertoYa!" <${process.env.GMAIL_USER}>`,
+        to,
+        subject,
+        html,
+        text: text || html.replace(/<[^>]*>/g, ""),
+      });
+      console.log(`[Email Service] Email enviado a: ${to} - Asunto: ${subject}`);
+    } catch (error) {
+      console.error("[Email Service Error] No se pudo enviar el email:", error);
+    }
+  }
+
+  public async sendCustomEmail(options: EmailOptions): Promise<void> {
+    return this.sendEmail(options);
+  }
   public async sendRejectionEmail(
     to: string,
     nombre: string,
@@ -857,24 +888,22 @@ class EmailService {
   }
 }
 
-const emailService = EmailService.getInstance();
+export { EmailService };
+export const emailService = EmailService.getInstance();
 
 export const sendWelcomeEmail = (email: string, nombre: string) =>
   emailService.sendWelcomeEmail(email, nombre);
-
 export const sendPasswordResetEmail = (
   to: string,
   nombre: string,
   resetToken: string,
   resetUrl: string,
 ) => emailService.sendPasswordResetEmail(to, nombre, resetToken, resetUrl);
-
 export const sendMatriculaSubmittedEmail = (
   to: string,
   nombre: string,
   oficios: string[],
 ) => emailService.sendMatriculaSubmittedEmail(to, nombre, oficios);
-
 export const sendAdminNewMatriculaEmail = (
   adminEmail: string,
   profesionalNombre: string,
@@ -889,19 +918,35 @@ export const sendAdminNewMatriculaEmail = (
     oficios,
     documentoUrl,
   );
-
 export const sendMatriculaApprovedEmail = (
   to: string,
   nombre: string,
   oficios: string[],
 ) => emailService.sendMatriculaApprovedEmail(to, nombre, oficios);
-
 export const sendMatriculaRejectedEmail = (
   to: string,
   nombre: string,
   oficios: string[],
   motivo: string,
 ) => emailService.sendMatriculaRejectedEmail(to, nombre, oficios, motivo);
+export const sendApprovalEmail = (to: string, nombre: string) =>
+  emailService.sendApprovalEmail(to, nombre);
+export const sendRejectionEmail = (to: string, nombre: string, motivo: string) =>
+  emailService.sendRejectionEmail(to, nombre, motivo);
+export const sendOnboardingSubmittedEmail = (to: string, nombre: string) =>
+  emailService.sendOnboardingSubmittedEmail(to, nombre);
+export const sendAdminNewSolicitudEmail = (
+  adminEmail: string,
+  profesionalNombre: string,
+  profesionalEmail: string,
+  oficios: string[],
+) =>
+  emailService.sendAdminNewSolicitudEmail(
+    adminEmail,
+    profesionalNombre,
+    profesionalEmail,
+    oficios,
+  );
 
 export default emailService;
 

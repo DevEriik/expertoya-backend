@@ -72,16 +72,47 @@ export const requireValidatedProfessional = async (
       select: { estado_validado: true, estado_auditoria: true },
     });
 
-    if (!profesional || !profesional.estado_validado || profesional.estado_auditoria !== "APROBADO") {
+    if (
+      !profesional ||
+      !profesional.estado_validado ||
+      profesional.estado_auditoria !== "APROBADO"
+    ) {
       res.status(403).json({
         error: "Perfil en proceso de validación",
-        detalle: "Tu perfil profesional aún está en proceso de auditoría y no ha sido aprobado por un administrador.",
+        detalle:
+          "Tu perfil profesional aún está en proceso de auditoría y no ha sido aprobado por un administrador.",
       });
       return;
     }
 
     next();
   } catch (error) {
-    res.status(500).json({ error: "Error interno al verificar estado del profesional" });
+    res
+      .status(500)
+      .json({ error: "Error interno al verificar estado del profesional" });
   }
+};
+
+export const authMiddleware = (roles?: string[]) => {
+  return async (
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    await verifyToken(req, res, () => {
+      if (!req.user) {
+        return;
+      }
+
+      if (roles && roles.length > 0 && !roles.includes(req.user.rol)) {
+        res.status(403).json({
+          error: "Acceso denegado: rol insuficiente",
+          detalle: `Se requiere uno de los roles: ${roles.join(", ")}`,
+        });
+        return;
+      }
+
+      next();
+    });
+  };
 };

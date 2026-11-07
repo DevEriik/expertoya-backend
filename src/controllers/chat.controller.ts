@@ -2,7 +2,7 @@ import { Response } from "express";
 import { AuthRequest } from "../middlewares/auth.middleware";
 import { prisma } from "../config/prisma";
 import { supabase } from "../config/supabase";
-import { notificar } from "../services/notification.service";
+import { notificacionService } from "../services/notification.service";
 import { estaUsuarioConectado } from "../sockets/presence";
 
 const ESTADOS_BLOQUEADOS = ["FINALIZADO", "DISPUTA", "RECHAZADO"];
@@ -255,39 +255,45 @@ export const iniciarConversacion = async (
       const previa = primer_mensaje?.trim();
 
       if (solicitudCreada) {
-        notificar(pro.id, {
-          tipo: "NUEVA_SOLICITUD",
-          titulo: "Nueva solicitud de trabajo",
-          cuerpo: previa
-            ? `${nombreCliente}: ${previa.slice(0, 80)}`
-            : `${nombreCliente} quiere contactarte`,
-          data: {
-            ruta: `/chat/${solicitud.id}`,
-            solicitudId: solicitud.id,
-          },
-          critica: true,
-        }).catch((error: any) =>
-          console.error(
-            "Error notificando nueva solicitud:",
-            error?.message || error,
-          ),
-        );
+        notificacionService
+          .sendPushNotification(
+            pro.id,
+            "Nueva solicitud de trabajo",
+            previa
+              ? `${nombreCliente}: ${previa.slice(0, 80)}`
+              : `${nombreCliente} quiere contactarte`,
+            {
+              type: "NUEVA_SOLICITUD",
+              solicitudId: solicitud.id,
+              ruta: `/chat/${solicitud.id}`,
+              critica: true,
+            } as any,
+          )
+          .catch((error: any) =>
+            console.error(
+              "Error notificando nueva solicitud:",
+              error?.message || error,
+            ),
+          );
       } else if (previa && !estaUsuarioConectado(pro.id)) {
-        notificar(pro.id, {
-          tipo: "MENSAJE_CHAT",
-          titulo: "Nuevo mensaje",
-          cuerpo: previa.slice(0, 80),
-          data: {
-            ruta: `/chat/${solicitud.id}`,
-            solicitudId: solicitud.id,
-          },
-          critica: false,
-        }).catch((error: any) =>
-          console.error(
-            "Error notificando primer mensaje:",
-            error?.message || error,
-          ),
-        );
+        notificacionService
+          .sendPushNotification(
+            pro.id,
+            "Nuevo mensaje",
+            previa.slice(0, 80),
+            {
+              type: "MENSAJE_CHAT",
+              solicitudId: solicitud.id,
+              ruta: `/chat/${solicitud.id}`,
+              critica: false,
+            } as any,
+          )
+          .catch((error: any) =>
+            console.error(
+              "Error notificando primer mensaje:",
+              error?.message || error,
+            ),
+          );
       }
     } catch (notifError: any) {
       console.error(
@@ -936,25 +942,27 @@ export const responderPropuestaVisita = async (
         : solicitud.cliente_id;
 
     if (destinatarioId && !estaUsuarioConectado(destinatarioId)) {
-      notificar(destinatarioId, {
-        tipo: "PROPUESTA_VISITA",
-        titulo: "Respuesta a la propuesta de visita",
-        cuerpo:
+      notificacionService
+        .sendPushNotification(
+          destinatarioId,
+          "Respuesta a la propuesta de visita",
           nuevo_estado === "ACEPTADA"
             ? "La propuesta de visita fue aceptada"
             : "La propuesta de visita fue reprogramada",
-        data: {
-          ruta: `/chat/${solicitud_id}`,
-          solicitudId: solicitud_id,
-          mensajeId: nuevoMensaje?.id ?? mensaje_id,
-        },
-        critica: false,
-      }).catch((error: any) =>
-        console.error(
-          "Error notificando propuesta de visita:",
-          error?.message || error,
-        ),
-      );
+          {
+            type: "PROPUESTA_VISITA",
+            solicitudId: solicitud_id,
+            ruta: `/chat/${solicitud_id}`,
+            mensajeId: nuevoMensaje?.id ?? mensaje_id,
+            critica: false,
+          } as any,
+        )
+        .catch((error: any) =>
+          console.error(
+            "Error notificando propuesta de visita:",
+            error?.message || error,
+          ),
+        );
     }
 
     res.json({

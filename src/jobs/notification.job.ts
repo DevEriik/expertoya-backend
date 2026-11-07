@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { reenviarNotificacionesCriticas } from "../services/notification.service";
+import { notificacionService } from "../services/notification.service";
 
 let ejecutando = false;
 
@@ -16,7 +16,7 @@ export function iniciarCronNotificaciones(): void {
 
     ejecutando = true;
     try {
-      await reenviarNotificacionesCriticas();
+      await notificacionService.reenviarNotificacionesCriticas();
     } catch (error: any) {
       console.error(
         "[Notificaciones] Error en el cron de críticas:",
