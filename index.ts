@@ -18,7 +18,9 @@ import usuarioRoutes from "./src/routes/usuario.routes";
 import paymentRoutes from "./src/routes/payment.routes";
 import adminPaymentRoutes from "./src/routes/admin-payment.routes";
 import webhookRoutes from "./src/routes/webhook.routes";
+import solicitudRoutes from "./src/routes/solicitud.routes";
 import { iniciarCronNotificaciones } from "./src/jobs/notification.job";
+import { iniciarCronSolicitudes } from "./src/jobs/solicitudes.job";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -72,6 +74,8 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/admin/payments", adminPaymentRoutes);
 app.use("/api/webhooks/mercadopago", webhookRoutes);
 
+app.use("/api/solicitudes", solicitudRoutes);
+
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("Error capturado por Express:", err.message);
   res.status(400).json({
@@ -93,4 +97,5 @@ initChatSocket(io);
 server.listen(PORT as number, "0.0.0.0", () => {
   console.log(`Servidor y Socket.io iniciados en http://0.0.0.0:${PORT}`);
   iniciarCronNotificaciones();
+  iniciarCronSolicitudes();
 });
