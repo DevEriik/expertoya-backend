@@ -2,6 +2,7 @@ import { Response } from "express";
 import { AuthRequest } from "../middlewares/auth.middleware";
 import { prisma } from "../config/prisma";
 import { supabase } from "../config/supabase";
+import { DailyService } from "../services/daily.service";
 
 const ESTADOS_BLOQUEADOS = ["FINALIZADO", "DISPUTA", "RECHAZADO"];
 
@@ -840,5 +841,122 @@ export const responderPropuestaVisita = async (
   } catch (error: any) {
     console.error("Error al responder propuesta:", error.message);
     res.status(500).json({ error: "Error interno al responder la propuesta" });
+  }
+};
+
+
+/**
+ * Genera una sala efímera de Daily.co para videollamada de diagnóstico visual
+ */
+export const iniciarLlamadaDiagnostico = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { solicitud_id } = req.params;
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const solicitud = await prisma.solicitudTrabajo.findUnique({
+      where: { id: solicitud_id },
+      include: {
+        servicio: { select: { profesional_id: true } },
+      },
+    });
+
+    if (!solicitud) {
+      res.status(404).json({ error: "Solicitud de trabajo no encontrada" });
+      return;
+    }
+
+    const esCliente = solicitud.cliente_id === userId;
+    const esProfesional = solicitud.servicio?.profesional_id === userId;
+
+    if (!esCliente && !esProfesional) {
+      res.status(403).json({ error: "No tienes permiso para acceder a esta llamada" });
+      return;
+    }
+
+    const estadoSolicitud = (solicitud.estado_solicitud_trabajo || "").toUpperCase();
+    if (ESTADOS_BLOQUEADOS.includes(estadoSolicitud)) {
+      res.status(400).json({
+        error: `No es posible iniciar videollamada. La conversación se encuentra cerrada o en estado ${estadoSolicitud}.`,
+      });
+      return;
+    }
+
+    const salaDaily = await DailyService.crearSalaEfimera({
+      solicitudId: solicitud.id,
+      duracionMinutos: 60,
+    });
+
+    const sesion = await prisma.sesionVideollamada.create({
+      data: {
+        solicitud_id: solicitud.id,
+        proveedor_id: salaDaily.url,
+        hora_inicio: new Date(),
+      },
+    });
+
+    res.json({
+      ok: true,
+      roomUrl: salaDaily.url,
+      roomName: salaDaily.name,
+      sesion_id: sesion.id,
+      expiresAt: salaDaily.expiresAt,
+    });
+  } catch (error: any) {
+    console.error("Error al iniciar llamada de diagnóstico:", error.message);
+    res.status(500).json({ error: "Error interno al crear sala de videollamada" });
+  }
+};
+
+/**
+ * Registra el fin de la sesión de videollamada y calcula su duración
+ */
+export const finalizarLlamadaDiagnostico = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { solicitud_id } = req.params;
+    const { sesion_id, duracion_segundos } = req.body;
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    if (sesion_id) {
+      const sesion = await prisma.sesionVideollamada.findUnique({
+        where: { id: sesion_id },
+      });
+
+      if (sesion) {
+        const horaFin = new Date();
+        const calculada = Math.max(
+          0,
+          Math.round((horaFin.getTime() - new Date(sesion.hora_inicio).getTime()) / 1000)
+        );
+
+        await prisma.sesionVideollamada.update({
+          where: { id: sesion_id },
+          data: {
+            hora_fin: horaFin,
+            duracion_segundos: duracion_segundos ?? calculada,
+          },
+        });
+      }
+    }
+
+    res.json({ ok: true, mensaje: "Sesión de videollamada concluida" });
+  } catch (error: any) {
+    console.error("Error al finalizar llamada de diagnóstico:", error.message);
+    res.status(500).json({ error: "Error interno al finalizar sesión de videollamada" });
   }
 };
