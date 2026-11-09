@@ -3,6 +3,8 @@ import { AuthRequest } from "../middlewares/auth.middleware";
 import { prisma } from "../config/prisma";
 import { supabase } from "../config/supabase";
 import { DailyService } from "../services/daily.service";
+import { notificacionService } from "../services/notification.service";
+import { estaUsuarioConectado } from "../sockets/presence";
 
 const ESTADOS_BLOQUEADOS = ["FINALIZADO", "DISPUTA", "RECHAZADO"];
 
@@ -11,7 +13,7 @@ const ESTADOS_BLOQUEADOS = ["FINALIZADO", "DISPUTA", "RECHAZADO"];
  */
 export const obtenerMisConversaciones = async (
   req: AuthRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const userId = req.user?.userId;
@@ -22,21 +24,30 @@ export const obtenerMisConversaciones = async (
 
     const solicitudes = await prisma.solicitudTrabajo.findMany({
       where: {
-        OR: [
-          { cliente_id: userId },
-          { servicio: { profesional_id: userId } },
-        ],
+        OR: [{ cliente_id: userId }, { servicio: { profesional_id: userId } }],
       },
       include: {
         cliente: {
-          select: { id: true, nombre: true, apellido: true, foto_perfil: true, rol: true },
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            foto_perfil: true,
+            rol: true,
+          },
         },
         servicio: {
           include: {
             profesional: {
               include: {
                 usuario: {
-                  select: { id: true, nombre: true, apellido: true, foto_perfil: true, rol: true },
+                  select: {
+                    id: true,
+                    nombre: true,
+                    apellido: true,
+                    foto_perfil: true,
+                    rol: true,
+                  },
                 },
               },
             },
@@ -69,7 +80,8 @@ export const obtenerMisConversaciones = async (
       const proParticipant = {
         id: s.servicio.profesional_id,
         name: `${proUser.nombre} ${proUser.apellido}`.trim(),
-        profession: s.servicio.oficio?.nombre_oficio || s.servicio.titulo_servicio,
+        profession:
+          s.servicio.oficio?.nombre_oficio || s.servicio.titulo_servicio,
         avatar:
           proUser.foto_perfil ||
           "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200",
@@ -84,7 +96,9 @@ export const obtenerMisConversaciones = async (
         lastMessage: ultimoMensaje
           ? ultimoMensaje.adjunto_url
             ? ultimoMensaje.contenido?.includes("🎤") ||
-              ultimoMensaje.adjunto_url.match(/\.(webm|mp3|wav|m4a|ogg|aac)($|\?)/i)
+              ultimoMensaje.adjunto_url.match(
+                /\.(webm|mp3|wav|m4a|ogg|aac)($|\?)/i,
+              )
               ? "Mensaje de voz"
               : "Foto adjunta"
             : ultimoMensaje.contenido.startsWith("[PROPUESTA_VISITA]:")
@@ -93,9 +107,9 @@ export const obtenerMisConversaciones = async (
           : "Sin mensajes aún",
         timestamp: ultimoMensaje
           ? new Date(ultimoMensaje.enviado_en).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })
+              hour: "2-digit",
+              minute: "2-digit",
+            })
           : "Nuevo",
         unreadCount: 0,
         status:
@@ -120,7 +134,7 @@ export const obtenerMisConversaciones = async (
  */
 export const iniciarConversacion = async (
   req: AuthRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const userId = req.user?.userId;
@@ -184,7 +198,8 @@ export const iniciarConversacion = async (
             profesional_id: pro.id,
             oficio_id: oficioId,
             titulo_servicio: "Consulta y Presupuesto",
-            descripcion_servicio: "Consulta inicial para coordinar detalles y presupuesto.",
+            descripcion_servicio:
+              "Consulta inicial para coordinar detalles y presupuesto.",
             costo_estimado: 0,
             duracion_estimada: "30 min",
             fotos_servicio: [],
@@ -203,6 +218,8 @@ export const iniciarConversacion = async (
       orderBy: { actualizado_en: "desc" },
     });
 
+    let solicitudCreada = false;
+
     if (!solicitud) {
       solicitud = await prisma.solicitudTrabajo.create({
         data: {
@@ -212,6 +229,7 @@ export const iniciarConversacion = async (
           estado_solicitud_trabajo: "ACEPTADO",
         },
       });
+      solicitudCreada = true;
     }
 
     if (primer_mensaje && primer_mensaje.trim()) {
@@ -225,6 +243,66 @@ export const iniciarConversacion = async (
       });
     }
 
+    try {
+      const cliente = await prisma.usuario.findUnique({
+        where: { id: userId },
+        select: { nombre: true, apellido: true },
+      });
+
+      const nombreCliente = `${cliente?.nombre ?? "Un cliente"} ${
+        cliente?.apellido ?? ""
+      }`.trim();
+
+      const previa = primer_mensaje?.trim();
+
+      if (solicitudCreada) {
+        notificacionService
+          .sendPushNotification(
+            pro.id,
+            "Nueva solicitud de trabajo",
+            previa
+              ? `${nombreCliente}: ${previa.slice(0, 80)}`
+              : `${nombreCliente} quiere contactarte`,
+            {
+              type: "NUEVA_SOLICITUD",
+              solicitudId: solicitud.id,
+              ruta: `/chat/${solicitud.id}`,
+              critica: true,
+            } as any,
+          )
+          .catch((error: any) =>
+            console.error(
+              "Error notificando nueva solicitud:",
+              error?.message || error,
+            ),
+          );
+      } else if (previa && !estaUsuarioConectado(pro.id)) {
+        notificacionService
+          .sendPushNotification(
+            pro.id,
+            "Nuevo mensaje",
+            previa.slice(0, 80),
+            {
+              type: "MENSAJE_CHAT",
+              solicitudId: solicitud.id,
+              ruta: `/chat/${solicitud.id}`,
+              critica: false,
+            } as any,
+          )
+          .catch((error: any) =>
+            console.error(
+              "Error notificando primer mensaje:",
+              error?.message || error,
+            ),
+          );
+      }
+    } catch (notifError: any) {
+      console.error(
+        "Error preparando notificación de conversación:",
+        notifError?.message || notifError,
+      );
+    }
+
     res.json({
       mensaje: "Conversación iniciada con éxito",
       solicitud_id: solicitud.id,
@@ -235,13 +313,12 @@ export const iniciarConversacion = async (
   }
 };
 
-
 /**
  * Recupera el historial de la conversación filtrado por solicitud_id
  */
 export const obtenerHistorialChat = async (
   req: AuthRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { solicitud_id } = req.params;
@@ -272,7 +349,9 @@ export const obtenerHistorialChat = async (
       return;
     }
 
-    const estadoSolicitud = (solicitud.estado_solicitud_trabajo || "").toUpperCase();
+    const estadoSolicitud = (
+      solicitud.estado_solicitud_trabajo || ""
+    ).toUpperCase();
     const bloqueado = ESTADOS_BLOQUEADOS.includes(estadoSolicitud);
 
     const mensajes = await prisma.mensajeChat.findMany({
@@ -306,21 +385,27 @@ export const obtenerHistorialChat = async (
  */
 export const subirAdjuntoChat = async (
   req: AuthRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { solicitud_id } = req.params;
     const userId = req.user?.userId;
-    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    const files = req.files as
+      | { [fieldname: string]: Express.Multer.File[] }
+      | undefined;
     const file =
       req.file ||
       (files && files["audio"]?.[0]) ||
       (files && files["foto"]?.[0]) ||
       (files && files["adjunto"]?.[0]) ||
-      (Array.isArray(req.files) ? (req.files[0] as Express.Multer.File) : undefined);
+      (Array.isArray(req.files)
+        ? (req.files[0] as Express.Multer.File)
+        : undefined);
 
     if (!file) {
-      res.status(400).json({ error: "No se proporcionó ningún archivo de imagen o audio" });
+      res
+        .status(400)
+        .json({ error: "No se proporcionó ningún archivo de imagen o audio" });
       return;
     }
 
@@ -342,7 +427,9 @@ export const subirAdjuntoChat = async (
       return;
     }
 
-    const estadoSolicitud = (solicitud.estado_solicitud_trabajo || "").toUpperCase();
+    const estadoSolicitud = (
+      solicitud.estado_solicitud_trabajo || ""
+    ).toUpperCase();
     if (ESTADOS_BLOQUEADOS.includes(estadoSolicitud)) {
       res.status(403).json({
         error: "El chat está bloqueado debido al estado de la solicitud",
@@ -355,8 +442,7 @@ export const subirAdjuntoChat = async (
 
     try {
       await supabase.storage.createBucket(bucketName, { public: true });
-    } catch (_) {
-    }
+    } catch (_) {}
 
     const isAudio =
       file.mimetype.startsWith("audio/") ||
@@ -368,11 +454,12 @@ export const subirAdjuntoChat = async (
     }
 
     const filePath = `${solicitud_id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-    const contentType = file.mimetype && file.mimetype !== "application/octet-stream"
-      ? file.mimetype
-      : isAudio
-        ? "audio/webm"
-        : "image/jpeg";
+    const contentType =
+      file.mimetype && file.mimetype !== "application/octet-stream"
+        ? file.mimetype
+        : isAudio
+          ? "audio/webm"
+          : "image/jpeg";
 
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from(bucketName)
@@ -383,7 +470,9 @@ export const subirAdjuntoChat = async (
 
     if (uploadError) {
       console.error("Error en Supabase Storage:", uploadError.message);
-      res.status(500).json({ error: "Error al almacenar el archivo en Supabase" });
+      res
+        .status(500)
+        .json({ error: "Error al almacenar el archivo en Supabase" });
       return;
     }
 
@@ -406,7 +495,7 @@ export const subirAdjuntoChat = async (
  */
 export const obtenerSugerenciasIA = async (
   req: AuthRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { solicitud_id } = req.params;
@@ -460,7 +549,7 @@ export const obtenerSugerenciasIA = async (
     });
     ultimosMensajes.reverse();
 
-    const seed = parseInt(req.query.variacion as string || "0", 10) || 0;
+    const seed = parseInt((req.query.variacion as string) || "0", 10) || 0;
 
     const seleccionar = (pool: string[], salt: number): string[] => {
       if (pool.length <= 3) return pool;
@@ -476,7 +565,8 @@ export const obtenerSugerenciasIA = async (
       .reverse()
       .find((m) => m.remitente_id !== userId);
 
-    const ultimoMensaje = ultimoDelOtro || ultimosMensajes[ultimosMensajes.length - 1];
+    const ultimoMensaje =
+      ultimoDelOtro || ultimosMensajes[ultimosMensajes.length - 1];
     const ultimoTexto = (ultimoMensaje?.contenido || "").toLowerCase();
 
     const apiKey = process.env.GEMINI_API_KEY?.trim();
@@ -491,11 +581,10 @@ Interlocutor: ${otroNombre}.
 Oficio / Servicio: ${solicitud.servicio?.titulo_servicio || "Oficio a domicilio"}.
 Historial de los últimos mensajes:
 ${ultimosMensajes
-            .map(
-              (m) =>
-                `${m.remitente_id === userId ? "Yo" : otroNombre}: "${m.contenido}"`
-            )
-            .join("\n")}
+  .map(
+    (m) => `${m.remitente_id === userId ? "Yo" : otroNombre}: "${m.contenido}"`,
+  )
+  .join("\n")}
 
 Genera exactamente 3 sugerencias de respuesta breves (máximo 10 palabras cada una), en español rioplatense/latinoamericano natural, sumamente educadas y pertinentes para responder al interlocutor.
 Devuelve ÚNICAMENTE un JSON válido con este formato exacto:
@@ -509,7 +598,10 @@ Devuelve ÚNICAMENTE un JSON válido con este formato exacto:
 
         const respuestaTexto = geminiRes.text?.trim() || "";
         const parsed = JSON.parse(respuestaTexto);
-        if (Array.isArray(parsed?.sugerencias) && parsed.sugerencias.length > 0) {
+        if (
+          Array.isArray(parsed?.sugerencias) &&
+          parsed.sugerencias.length > 0
+        ) {
           res.json({
             origen: "gemini_ai",
             sugerencias: parsed.sugerencias.slice(0, 3),
@@ -534,7 +626,7 @@ Devuelve ÚNICAMENTE un JSON válido con este formato exacto:
       ultimoTexto.includes("llegando") ||
       ultimoTexto.includes("llego en") ||
       ultimoTexto.includes("en la puerta") ||
-      ultimoTexto.includes("en viaje")
+      ultimoTexto.includes("en viaje");
     const esPreguntaHorarioOVisita =
       ultimoTexto.includes("¿cuándo") ||
       ultimoTexto.includes("cuando podés") ||
@@ -548,12 +640,11 @@ Devuelve ÚNICAMENTE un JSON válido con este formato exacto:
       ultimoTexto.includes("disponibilidad") ||
       ultimoTexto.includes("podrías hoy") ||
       ultimoTexto.includes("podrias hoy") ||
-      (ultimoTexto.includes("?") && (
-        ultimoTexto.includes("venir") ||
-        ultimoTexto.includes("pasar") ||
-        ultimoTexto.includes("hoy") ||
-        ultimoTexto.includes("mañana")
-      ));
+      (ultimoTexto.includes("?") &&
+        (ultimoTexto.includes("venir") ||
+          ultimoTexto.includes("pasar") ||
+          ultimoTexto.includes("hoy") ||
+          ultimoTexto.includes("mañana")));
 
     const esPresupuestoOCosto =
       ultimoTexto.includes("presupuesto") ||
@@ -771,7 +862,7 @@ Devuelve ÚNICAMENTE un JSON válido con este formato exacto:
  */
 export const responderPropuestaVisita = async (
   req: AuthRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { solicitud_id, mensaje_id } = req.params;
@@ -784,7 +875,9 @@ export const responderPropuestaVisita = async (
     }
 
     if (!["ACEPTADA", "REPROGRAMAR"].includes(nuevo_estado)) {
-      res.status(400).json({ error: "Estado no válido. Debe ser ACEPTADA o REPROGRAMAR." });
+      res
+        .status(400)
+        .json({ error: "Estado no válido. Debe ser ACEPTADA o REPROGRAMAR." });
       return;
     }
 
@@ -798,13 +891,27 @@ export const responderPropuestaVisita = async (
     }
 
     if (!mensaje.contenido.startsWith("[PROPUESTA_VISITA]:")) {
-      res.status(400).json({ error: "El mensaje no es una propuesta de visita técnica." });
+      res
+        .status(400)
+        .json({ error: "El mensaje no es una propuesta de visita técnica." });
+      return;
+    }
+
+    const solicitud = await prisma.solicitudTrabajo.findUnique({
+      where: { id: solicitud_id },
+      include: { servicio: { select: { profesional_id: true } } },
+    });
+
+    if (!solicitud) {
+      res.status(404).json({ error: "Solicitud no encontrada" });
       return;
     }
 
     let propuestaData: any = {};
     try {
-      propuestaData = JSON.parse(mensaje.contenido.slice("[PROPUESTA_VISITA]:".length));
+      propuestaData = JSON.parse(
+        mensaje.contenido.slice("[PROPUESTA_VISITA]:".length),
+      );
     } catch {
       res.status(400).json({ error: "Formato de propuesta inválido" });
       return;
@@ -828,6 +935,35 @@ export const responderPropuestaVisita = async (
           leido: false,
         },
       });
+    }
+
+    const destinatarioId =
+      userId === solicitud.cliente_id
+        ? solicitud.servicio.profesional_id
+        : solicitud.cliente_id;
+
+    if (destinatarioId && !estaUsuarioConectado(destinatarioId)) {
+      notificacionService
+        .sendPushNotification(
+          destinatarioId,
+          "Respuesta a la propuesta de visita",
+          nuevo_estado === "ACEPTADA"
+            ? "La propuesta de visita fue aceptada"
+            : "La propuesta de visita fue reprogramada",
+          {
+            type: "PROPUESTA_VISITA",
+            solicitudId: solicitud_id,
+            ruta: `/chat/${solicitud_id}`,
+            mensajeId: nuevoMensaje?.id ?? mensaje_id,
+            critica: false,
+          } as any,
+        )
+        .catch((error: any) =>
+          console.error(
+            "Error notificando propuesta de visita:",
+            error?.message || error,
+          ),
+        );
     }
 
     res.json({

@@ -2,6 +2,12 @@ import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/prisma";
 import { DailyService } from "../services/daily.service";
+import { notificacionService } from "../services/notification.service";
+import {
+  marcarConectado,
+  marcarDesconectado,
+  estaUsuarioConectado,
+} from "./presence";
 
 interface SocketUser {
   userId: string;
@@ -38,10 +44,13 @@ export const initChatSocket = (io: Server) => {
         socket.handshake.headers?.authorization?.replace(/^Bearer\s+/i, "");
 
       if (!token) {
-        return next(new Error("Autenticación requerida: Token no proporcionado"));
+        return next(
+          new Error("Autenticación requerida: Token no proporcionado"),
+        );
       }
 
-      const secret = process.env.JWT_SECRET || "expertoya_clave_secreta_jwt_2026";
+      const secret =
+        process.env.JWT_SECRET || "expertoya_clave_secreta_jwt_2026";
       const decoded = jwt.verify(token, secret) as SocketUser;
       socket.user = decoded;
       next();
@@ -53,7 +62,13 @@ export const initChatSocket = (io: Server) => {
 
   io.on("connection", (socket: AuthenticatedSocket) => {
     const userId = socket.user?.userId;
-    console.log(`🔌 [Socket.io] Usuario conectado al chat: ${userId} (${socket.id})`);
+    console.log(
+      `🔌 [Socket.io] Usuario conectado al chat: ${userId} (${socket.id})`,
+    );
+    if (userId) {
+      marcarConectado(userId);
+      socket.join(`usuario_${userId}`);
+    }
 
     const handleJoinSolicitud = async (data: { solicitud_id: string }) => {
       try {
@@ -84,7 +99,9 @@ export const initChatSocket = (io: Server) => {
         const roomName = `solicitud_${solicitud_id}`;
         socket.join(roomName);
 
-        const estadoActual = (solicitud.estado_solicitud_trabajo || "").toUpperCase();
+        const estadoActual = (
+          solicitud.estado_solicitud_trabajo || ""
+        ).toUpperCase();
         const bloqueado = ESTADOS_BLOQUEADOS.includes(estadoActual);
 
         socket.emit("chat_unido", {
@@ -123,7 +140,7 @@ export const initChatSocket = (io: Server) => {
           adjunto_url?: string;
           temp_id?: string;
         },
-        callback?: (response: any) => void
+        callback?: (response: any) => void,
       ) => {
         try {
           const { solicitud_id, contenido, adjunto_url, temp_id } = payload;
@@ -144,7 +161,9 @@ export const initChatSocket = (io: Server) => {
             return;
           }
 
-          const estadoActual = (solicitud.estado_solicitud_trabajo || "").toUpperCase();
+          const estadoActual = (
+            solicitud.estado_solicitud_trabajo || ""
+          ).toUpperCase();
           if (ESTADOS_BLOQUEADOS.includes(estadoActual)) {
             const errorMsg = `No se pueden enviar mensajes: El trabajo se encuentra en estado ${estadoActual}.`;
             socket.emit("chat_bloqueado", { solicitud_id, motivo: errorMsg });
@@ -179,19 +198,55 @@ export const initChatSocket = (io: Server) => {
             temp_id,
             mensaje_id: nuevoMensaje.id,
           });
+
+          const destinatarioId =
+            userId === solicitud.cliente_id
+              ? solicitud.servicio?.profesional_id
+              : solicitud.cliente_id;
+
+          if (destinatarioId && !estaUsuarioConectado(destinatarioId)) {
+            const vistaPrevia = contenido?.trim()
+              ? contenido.trim().slice(0, 80)
+              : adjunto_url
+                ? "Te enviaron un archivo adjunto"
+                : "Nuevo mensaje";
+
+            notificacionService
+              .sendPushNotification(
+                destinatarioId,
+                "Nuevo mensaje",
+                vistaPrevia,
+                {
+                  type: "MENSAJE_CHAT",
+                  solicitudId: solicitud_id,
+                  ruta: `/chat/${solicitud_id}`,
+                  mensajeId: nuevoMensaje.id,
+                  critica: false,
+                } as any,
+              )
+              .catch((error: any) =>
+                console.error(
+                  "Error notificando mensaje de chat:",
+                  error?.message || error,
+                ),
+              );
+          }
         } catch (error: any) {
           console.error("Error al persistir mensaje:", error.message);
           callback?.({ error: "Error interno al enviar el mensaje" });
         }
-      }
+      },
     );
 
-    socket.on("confirmar_entrega", (data: { mensaje_id: string; solicitud_id: string }) => {
-      const roomName = `solicitud_${data.solicitud_id}`;
-      socket.to(roomName).emit("mensaje_entregado", {
-        mensaje_id: data.mensaje_id,
-      });
-    });
+    socket.on(
+      "confirmar_entrega",
+      (data: { mensaje_id: string; solicitud_id: string }) => {
+        const roomName = `solicitud_${data.solicitud_id}`;
+        socket.to(roomName).emit("mensaje_entregado", {
+          mensaje_id: data.mensaje_id,
+        });
+      },
+    );
 
     socket.on("marcar_leido", async (data: { solicitud_id: string }) => {
       try {
@@ -246,18 +301,22 @@ export const initChatSocket = (io: Server) => {
         respuesta_texto?: string;
       }) => {
         try {
-          const { solicitud_id, mensaje_id, nuevo_estado, respuesta_texto } = data || {};
+          const { solicitud_id, mensaje_id, nuevo_estado, respuesta_texto } =
+            data || {};
           if (!solicitud_id || !mensaje_id || !userId) return;
 
           const mensaje = await prisma.mensajeChat.findUnique({
             where: { id: mensaje_id },
           });
 
-          if (!mensaje || !mensaje.contenido.startsWith("[PROPUESTA_VISITA]:")) return;
+          if (!mensaje || !mensaje.contenido.startsWith("[PROPUESTA_VISITA]:"))
+            return;
 
           let propuestaData: any = {};
           try {
-            propuestaData = JSON.parse(mensaje.contenido.slice("[PROPUESTA_VISITA]:".length));
+            propuestaData = JSON.parse(
+              mensaje.contenido.slice("[PROPUESTA_VISITA]:".length),
+            );
           } catch {
             return;
           }
@@ -294,7 +353,7 @@ export const initChatSocket = (io: Server) => {
         } catch (error: any) {
           console.error("Error en socket responder_propuesta:", error.message);
         }
-      }
+      },
     );
 
     /**
@@ -622,9 +681,79 @@ export const initChatSocket = (io: Server) => {
     });
 
     /**
-     * Gestión de desconexión del socket (Teardown automático si estaba en llamada)
+     * Gestión de desconexión del socket (Teardown automático si estaba en llamada y presencia)
      */
     socket.on("disconnect", async () => {
+      if (userId) marcarDesconectado(userId);
+
+      const solicitudId = socketToSolicitudLlamada.get(socket.id);
+      if (solicitudId) {
+        setTimeout(async () => {
+          const llamada = llamadasActivas.get(solicitudId);
+          if (llamada && (llamada.caller_socket_id === socket.id || llamada.recipient_socket_id === socket.id)) {
+            const roomName = `solicitud_${solicitudId}`;
+            try {
+              const socketsInRoom = await io.in(roomName).fetchSockets();
+              const sigueEnSala = socketsInRoom.some((s: any) => s.user?.userId === userId);
+              if (sigueEnSala) {
+                console.log(`🔌 [Socket.io] Usuario ${userId} sigue presente con otro socket. Manteniendo llamada.`);
+                return;
+              }
+            } catch (_) { }
+
+            console.log(`🔌 [Socket.io] Usuario ${userId} ausente tras tolerancia. Finalizando llamada.`);
+            llamada.estado = "finalizada";
+            const duracion = Math.max(
+              0,
+              Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000)
+            );
+
+            if (llamada.sesion_id) {
+              await prisma.sesionVideollamada
+                .update({
+                  where: { id: llamada.sesion_id },
+                  data: { hora_fin: new Date(), duracion_segundos: duracion },
+                })
+                .catch(() => { });
+            }
+
+            io.to(roomName).emit("call:ended", {
+              solicitud_id: solicitudId,
+              duracion,
+              motivo: "El interlocutor se ha desconectado de la red",
+            });
+
+            const discSenderId = userId || llamada.caller_id;
+            if (discSenderId) {
+              try {
+                const mins = Math.floor(duracion / 60);
+                const secs = duracion % 60;
+                const durTxt = mins > 0 ? `${mins} min ${secs} seg` : `${secs} seg`;
+                const msgDesc = await prisma.mensajeChat.create({
+                  data: {
+                    solicitud_id: solicitudId,
+                    remitente_id: discSenderId,
+                    contenido: `📞 Videollamada finalizada por desconexión de red · ${durTxt}`,
+                    leido: false,
+                  },
+                  include: {
+                    remitente: {
+                      select: { id: true, nombre: true, apellido: true, foto_perfil: true, rol: true },
+                    },
+                  },
+                });
+                io.to(roomName).emit("nuevo_mensaje", msgDesc);
+                io.to(roomName).emit("mensaje_recibido", msgDesc);
+              } catch (_) { }
+            }
+
+            llamadasActivas.delete(solicitudId);
+          }
+        }, 6000);
+
+        socketToSolicitudLlamada.delete(socket.id);
+      }
+    });
       console.log(`🔌 [Socket.io] Usuario desconectado: ${userId}`);
 
       const solicitudId = socketToSolicitudLlamada.get(socket.id);
