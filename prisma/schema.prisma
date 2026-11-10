@@ -225,7 +225,9 @@ model SolicitudTrabajo {
   liberado_en               DateTime?
   estado_solicitud_trabajo EstadoSolicitud @default(PENDIENTE)
   actualizado_en           DateTime        @updatedAt
-
+  expira_at                DateTime?
+  descripcion              String?         @db.Text
+  franja_horaria           String?
   cliente  Usuario           @relation("ClienteSolicitud", fields: [cliente_id], references: [id], onDelete: Cascade)
   servicio ServicioPublicado @relation(fields: [servicio_id], references: [id], onDelete: Cascade)
 
