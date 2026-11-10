@@ -19,6 +19,7 @@ import paymentRoutes from "./src/routes/payment.routes";
 import adminPaymentRoutes from "./src/routes/admin-payment.routes";
 import webhookRoutes from "./src/routes/webhook.routes";
 import solicitudRoutes from "./src/routes/solicitud.routes";
+import reportesRoutes from "./src/routes/reportes.routes";
 import { iniciarCronNotificaciones } from "./src/jobs/notification.job";
 import { iniciarCronSolicitudes } from "./src/jobs/solicitudes.job";
 
@@ -68,6 +69,7 @@ app.use("/api/profesionales", profesionalesRoutes);
 app.use("/api/profesiones", profesionesRoutes);
 app.use("/api/ia", iaRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/reportes", reportesRoutes);
 app.use("/api/notificaciones", notificationRoutes);
 app.use("/api/usuarios", usuarioRoutes);
 app.use("/api/payments", paymentRoutes);

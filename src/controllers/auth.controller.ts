@@ -136,6 +136,21 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    if (!usuario.activo) {
+      res.status(403).json({
+        error: "Acceso denegado: Esta cuenta ha sido inhabilitada definitivamente por la administración.",
+      });
+      return;
+    }
+
+    if (usuario.suspendido_hasta && usuario.suspendido_hasta > new Date()) {
+      res.status(403).json({
+        error: "Acceso denegado: Esta cuenta se encuentra temporalmente suspendida.",
+        suspendido_hasta: usuario.suspendido_hasta,
+      });
+      return;
+    }
+
     const secret = process.env.JWT_SECRET || "expertoya_clave_secreta_jwt_2026";
     const token = jwt.sign({ userId: usuario.id, rol: usuario.rol }, secret, {
       expiresIn: "7d",

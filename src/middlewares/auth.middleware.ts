@@ -36,6 +36,26 @@ export const verifyToken = async (
       return;
     }
 
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: decoded.userId },
+      select: { activo: true, suspendido_hasta: true },
+    });
+
+    if (!usuario || !usuario.activo) {
+      res.status(403).json({
+        error: "Acceso denegado: Tu cuenta ha sido inhabilitada por la administración.",
+      });
+      return;
+    }
+
+    if (usuario.suspendido_hasta && usuario.suspendido_hasta > new Date()) {
+      res.status(403).json({
+        error: "Acceso denegado: Tu cuenta se encuentra temporalmente suspendida.",
+        suspendido_hasta: usuario.suspendido_hasta,
+      });
+      return;
+    }
+
     req.user = decoded;
     next();
   } catch (error) {

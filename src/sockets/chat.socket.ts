@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { prisma } from "../config/prisma";
 import { DailyService } from "../services/daily.service";
 import { notificacionService } from "../services/notification.service";
+import { setIO, getIO } from "./io";
 import {
   marcarConectado,
   marcarDesconectado,
@@ -18,7 +19,7 @@ export interface AuthenticatedSocket extends Socket {
   user?: SocketUser;
 }
 
-const ESTADOS_BLOQUEADOS = ["FINALIZADO", "DISPUTA", "RECHAZADO"];
+const ESTADOS_BLOQUEADOS = ["FINALIZADO", "DISPUTA", "RECHAZADO", "BLOQUEADO"];
 
 interface LlamadaActiva {
   solicitud_id: string;
@@ -36,7 +37,66 @@ interface LlamadaActiva {
 const llamadasActivas = new Map<string, LlamadaActiva>();
 const socketToSolicitudLlamada = new Map<string, string>();
 
+/**
+ * Fuerza el corte inmediato de una videollamada activa asociada a una solicitud
+ * cuando un usuario es bloqueado o denunciado.
+ */
+export const finalizarLlamadaPorBloqueo = async (
+  solicitud_id: string,
+  motivo = "Llamada finalizada: La comunicación ha sido bloqueada"
+): Promise<void> => {
+  const io = getIO();
+  const llamada = llamadasActivas.get(solicitud_id);
+  const roomName = `solicitud_${solicitud_id}`;
+
+  if (llamada) {
+    llamada.estado = "finalizada";
+    const duracion = Math.max(
+      0,
+      Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000)
+    );
+    if (llamada.sesion_id) {
+      await prisma.sesionVideollamada
+        .update({
+          where: { id: llamada.sesion_id },
+          data: { hora_fin: new Date(), duracion_segundos: duracion },
+        })
+        .catch(() => {});
+    }
+    llamadasActivas.delete(solicitud_id);
+    if (llamada.caller_socket_id) socketToSolicitudLlamada.delete(llamada.caller_socket_id);
+    if (llamada.recipient_socket_id) socketToSolicitudLlamada.delete(llamada.recipient_socket_id);
+  }
+
+  const sesionAbierta = await prisma.sesionVideollamada.findFirst({
+    where: { solicitud_id, hora_fin: null },
+    orderBy: { hora_inicio: "desc" },
+  });
+  if (sesionAbierta) {
+    const duracion = Math.max(
+      0,
+      Math.round((Date.now() - new Date(sesionAbierta.hora_inicio).getTime()) / 1000)
+    );
+    await prisma.sesionVideollamada
+      .update({
+        where: { id: sesionAbierta.id },
+        data: { hora_fin: new Date(), duracion_segundos: duracion },
+      })
+      .catch(() => {});
+  }
+
+  if (io) {
+    io.to(roomName).emit("call:ended", {
+      solicitud_id,
+      duracion: 0,
+      motivo,
+      bloqueado: true,
+    });
+  }
+};
+
 export const initChatSocket = (io: Server) => {
+  setIO(io);
   io.use((socket: AuthenticatedSocket, next) => {
     try {
       const token =
@@ -68,6 +128,9 @@ export const initChatSocket = (io: Server) => {
     if (userId) {
       marcarConectado(userId);
       socket.join(`usuario_${userId}`);
+      if (socket.user?.rol === "ADMIN") {
+        socket.join("admins");
+      }
     }
 
     const handleJoinSolicitud = async (data: { solicitud_id: string }) => {
@@ -102,12 +165,46 @@ export const initChatSocket = (io: Server) => {
         const estadoActual = (
           solicitud.estado_solicitud_trabajo || ""
         ).toUpperCase();
-        const bloqueado = ESTADOS_BLOQUEADOS.includes(estadoActual);
+
+        const otroId = esCliente
+          ? solicitud.servicio?.profesional_id
+          : solicitud.cliente_id;
+
+        const bloqueoActivo = await prisma.bloqueoUsuario.findFirst({
+          where: {
+            activo: true,
+            OR: [
+              { solicitud_id },
+              ...(otroId
+                ? [
+                    { bloqueador_id: userId, bloqueado_id: otroId },
+                    { bloqueador_id: otroId, bloqueado_id: userId },
+                  ]
+                : []),
+            ],
+          },
+          orderBy: { fecha_bloqueo: "desc" },
+        });
+
+        const bloqueado =
+          ESTADOS_BLOQUEADOS.includes(estadoActual) ||
+          Boolean(bloqueoActivo) ||
+          estadoActual === "BLOQUEADO";
 
         socket.emit("chat_unido", {
           solicitud_id,
           bloqueado,
           estado_solicitud: estadoActual,
+          bloqueo: bloqueoActivo
+            ? {
+                id: bloqueoActivo.id,
+                bloqueador_id: bloqueoActivo.bloqueador_id,
+                bloqueado_id: bloqueoActivo.bloqueado_id,
+                motivo: bloqueoActivo.motivo,
+                fecha_bloqueo: bloqueoActivo.fecha_bloqueo,
+                es_bloqueador: bloqueoActivo.bloqueador_id === userId,
+              }
+            : null,
         });
 
         await prisma.mensajeChat.updateMany({
@@ -164,9 +261,40 @@ export const initChatSocket = (io: Server) => {
           const estadoActual = (
             solicitud.estado_solicitud_trabajo || ""
           ).toUpperCase();
-          if (ESTADOS_BLOQUEADOS.includes(estadoActual)) {
-            const errorMsg = `No se pueden enviar mensajes: El trabajo se encuentra en estado ${estadoActual}.`;
-            socket.emit("chat_bloqueado", { solicitud_id, motivo: errorMsg });
+
+          const destinatarioId =
+            userId === solicitud.cliente_id
+              ? solicitud.servicio?.profesional_id
+              : solicitud.cliente_id;
+
+          const bloqueoActivo = await prisma.bloqueoUsuario.findFirst({
+            where: {
+              activo: true,
+              OR: [
+                { solicitud_id },
+                ...(destinatarioId
+                  ? [
+                      { bloqueador_id: userId, bloqueado_id: destinatarioId },
+                      { bloqueador_id: destinatarioId, bloqueado_id: userId },
+                    ]
+                  : []),
+              ],
+            },
+          });
+
+          if (
+            ESTADOS_BLOQUEADOS.includes(estadoActual) ||
+            estadoActual === "BLOQUEADO" ||
+            Boolean(bloqueoActivo)
+          ) {
+            const errorMsg = bloqueoActivo
+              ? "No se pueden enviar mensajes: La comunicación ha sido bloqueada."
+              : `No se pueden enviar mensajes: El trabajo se encuentra en estado ${estadoActual}.`;
+            socket.emit("chat_bloqueado", {
+              solicitud_id,
+              motivo: errorMsg,
+              bloqueado: true,
+            });
             callback?.({ error: errorMsg, bloqueado: true });
             return;
           }
@@ -198,11 +326,6 @@ export const initChatSocket = (io: Server) => {
             temp_id,
             mensaje_id: nuevoMensaje.id,
           });
-
-          const destinatarioId =
-            userId === solicitud.cliente_id
-              ? solicitud.servicio?.profesional_id
-              : solicitud.cliente_id;
 
           if (destinatarioId && !estaUsuarioConectado(destinatarioId)) {
             const vistaPrevia = contenido?.trim()
@@ -412,16 +535,34 @@ export const initChatSocket = (io: Server) => {
           }
 
           const estadoActual = (solicitud.estado_solicitud_trabajo || "").toUpperCase();
-          if (ESTADOS_BLOQUEADOS.includes(estadoActual)) {
-            const errorMsg = `No se puede iniciar la llamada: la conversación se encuentra cerrada o en estado ${estadoActual}.`;
-            socket.emit("call:error", { mensaje: errorMsg });
-            callback?.({ error: errorMsg });
-            return;
-          }
 
           const recipientId = esCliente
             ? solicitud.servicio.profesional_id
             : solicitud.cliente_id;
+
+          const bloqueoActivo = await prisma.bloqueoUsuario.findFirst({
+            where: {
+              activo: true,
+              OR: [
+                { solicitud_id },
+                { bloqueador_id: userId, bloqueado_id: recipientId },
+                { bloqueador_id: recipientId, bloqueado_id: userId },
+              ],
+            },
+          });
+
+          if (
+            ESTADOS_BLOQUEADOS.includes(estadoActual) ||
+            estadoActual === "BLOQUEADO" ||
+            Boolean(bloqueoActivo)
+          ) {
+            const errorMsg = bloqueoActivo
+              ? "No se puede iniciar la videollamada: La comunicación ha sido bloqueada."
+              : `No se puede iniciar la llamada: la conversación se encuentra cerrada o en estado ${estadoActual}.`;
+            socket.emit("call:error", { mensaje: errorMsg });
+            callback?.({ error: errorMsg });
+            return;
+          }
 
           const callerData = esCliente
             ? {
@@ -753,76 +894,7 @@ export const initChatSocket = (io: Server) => {
 
         socketToSolicitudLlamada.delete(socket.id);
       }
-    });
       console.log(`🔌 [Socket.io] Usuario desconectado: ${userId}`);
-
-      const solicitudId = socketToSolicitudLlamada.get(socket.id);
-      if (solicitudId) {
-        setTimeout(async () => {
-          const llamada = llamadasActivas.get(solicitudId);
-          if (llamada && (llamada.caller_socket_id === socket.id || llamada.recipient_socket_id === socket.id)) {
-            const roomName = `solicitud_${solicitudId}`;
-            try {
-              const socketsInRoom = await io.in(roomName).fetchSockets();
-              const sigueEnSala = socketsInRoom.some((s: any) => s.user?.userId === userId);
-              if (sigueEnSala) {
-                console.log(`🔌 [Socket.io] Usuario ${userId} sigue presente con otro socket. Manteniendo llamada.`);
-                return;
-              }
-            } catch (_) { }
-
-            console.log(`🔌 [Socket.io] Usuario ${userId} ausente tras tolerancia. Finalizando llamada.`);
-            llamada.estado = "finalizada";
-            const duracion = Math.max(
-              0,
-              Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000)
-            );
-
-            if (llamada.sesion_id) {
-              await prisma.sesionVideollamada
-                .update({
-                  where: { id: llamada.sesion_id },
-                  data: { hora_fin: new Date(), duracion_segundos: duracion },
-                })
-                .catch(() => { });
-            }
-
-            io.to(roomName).emit("call:ended", {
-              solicitud_id: solicitudId,
-              duracion,
-              motivo: "El interlocutor se ha desconectado de la red",
-            });
-
-            const discSenderId = userId || llamada.caller_id;
-            if (discSenderId) {
-              try {
-                const mins = Math.floor(duracion / 60);
-                const secs = duracion % 60;
-                const durTxt = mins > 0 ? `${mins} min ${secs} seg` : `${secs} seg`;
-                const msgDesc = await prisma.mensajeChat.create({
-                  data: {
-                    solicitud_id: solicitudId,
-                    remitente_id: discSenderId,
-                    contenido: `📞 Videollamada finalizada por desconexión de red · ${durTxt}`,
-                    leido: false,
-                  },
-                  include: {
-                    remitente: {
-                      select: { id: true, nombre: true, apellido: true, foto_perfil: true, rol: true },
-                    },
-                  },
-                });
-                io.to(roomName).emit("nuevo_mensaje", msgDesc);
-                io.to(roomName).emit("mensaje_recibido", msgDesc);
-              } catch (_) { }
-            }
-
-            llamadasActivas.delete(solicitudId);
-          }
-        }, 6000);
-
-        socketToSolicitudLlamada.delete(socket.id);
-      }
     });
   });
 };
