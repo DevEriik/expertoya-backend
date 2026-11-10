@@ -75,7 +75,7 @@ export const obtenerSolicitudesCliente = async (
           },
         },
       },
-      orderBy: { actualizado_en: "desc" },
+      orderBy: { fecha_solicitada: "desc" },
     });
 
     const solicitudesMapeadas = solicitudes.map((sol) => ({
