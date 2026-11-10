@@ -24,6 +24,29 @@ enum EstadoSolicitud {
   DISPUTA
   CANCELADO
   CANCELADO_AUTO
+  BLOQUEADO
+}
+
+enum TipoMotivoReporte {
+  PAGO_FUERA_PLATAFORMA
+  ACOSO_O_LENGUAJE_OFENSIVO
+  INCUMPLIMIENTO_SERVICIO
+  SUPLANTACION_O_FRAUDE
+  OTRO
+}
+
+enum EstadoReporte {
+  PENDIENTE
+  EN_REVISION
+  RESUELTO_CON_SANCION
+  DESESTIMADO
+}
+
+enum SancionAplicada {
+  ADVERTENCIA
+  SUSPENSION_TEMPORAL
+  EXPULSION_DEFINITIVA
+  NINGUNA
 }
 
 enum EstadoPago {
@@ -91,6 +114,9 @@ model Usuario {
   foto_perfil           String?
   fecha_nacimiento      DateTime?
   rol                   Role                     @default(CLIENTE)
+  activo                Boolean                  @default(true)
+  strikes               Int                      @default(0)
+  suspendido_hasta      DateTime?
   creado_en             DateTime                 @default(now())
   sonidoActivo          Boolean                  @default(true) @map("sonido_activo")
 
@@ -104,6 +130,11 @@ model Usuario {
   resenias_dadas        Resenia[]                @relation("ReseniaCliente")
   profesionales_validados Profesional[]          @relation("AdminValidador")
   sesiones              Sesion[]
+  bloqueos_realizados   BloqueoUsuario[]         @relation("BloqueosRealizados")
+  bloqueos_recibidos    BloqueoUsuario[]         @relation("BloqueosRecibidos")
+  denuncias_emitidas    ReporteDenuncia[]        @relation("DenunciasEmitidas")
+  denuncias_recibidas   ReporteDenuncia[]        @relation("DenunciasRecibidas")
+  reportes_revisados    ReporteDenuncia[]        @relation("AdminReportesRevisados")
 
   @@map("usuario")
 }
@@ -238,6 +269,8 @@ model SolicitudTrabajo {
   disputas           Disputa[]
   mensajes           MensajeChat[]
   resenias           Resenia[]
+  bloqueos           BloqueoUsuario[]
+  reportes           ReporteDenuncia[]
 
   @@map("solicitud_trabajo")
 }
@@ -429,4 +462,50 @@ model Notificacion {
   @@index([userId, leida])
   @@index([critica, leida, ultimoEnvioAt])
   @@map("notificacion")
+}
+
+// 1. Registro de bloqueos bilaterales
+model BloqueoUsuario {
+  id              String            @id @default(uuid())
+  bloqueador_id   String
+  bloqueado_id    String
+  solicitud_id    String?
+  motivo          String            @db.Text
+  fecha_bloqueo   DateTime          @default(now())
+  activo          Boolean           @default(true)
+
+  bloqueador      Usuario           @relation("BloqueosRealizados", fields: [bloqueador_id], references: [id], onDelete: Cascade)
+  bloqueado       Usuario           @relation("BloqueosRecibidos", fields: [bloqueado_id], references: [id], onDelete: Cascade)
+  solicitud       SolicitudTrabajo? @relation(fields: [solicitud_id], references: [id], onDelete: SetNull)
+
+  @@index([bloqueador_id])
+  @@index([bloqueado_id])
+  @@map("bloqueo_usuario")
+}
+
+// 2. Denuncias formales para auditoría del Administrador
+model ReporteDenuncia {
+  id                String            @id @default(uuid())
+  denunciante_id    String
+  denunciado_id     String
+  solicitud_id      String?
+  tipo_motivo       TipoMotivoReporte
+  descripcion       String            @db.Text
+  captura_url       String?
+  estado            EstadoReporte     @default(PENDIENTE)
+  sancion_aplicada  SancionAplicada   @default(NINGUNA)
+  resolucion_admin  String?           @db.Text
+  revisado_por      String?
+  creado_en         DateTime          @default(now())
+  actualizado_en    DateTime          @updatedAt
+
+  denunciante       Usuario           @relation("DenunciasEmitidas", fields: [denunciante_id], references: [id], onDelete: Cascade)
+  denunciado        Usuario           @relation("DenunciasRecibidas", fields: [denunciado_id], references: [id], onDelete: Cascade)
+  solicitud         SolicitudTrabajo? @relation(fields: [solicitud_id], references: [id], onDelete: SetNull)
+  admin_revisor     Usuario?          @relation("AdminReportesRevisados", fields: [revisado_por], references: [id], onDelete: SetNull)
+
+  @@index([denunciante_id])
+  @@index([denunciado_id])
+  @@index([estado])
+  @@map("reporte_denuncia")
 }

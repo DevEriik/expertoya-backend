@@ -10,6 +10,8 @@ import {
   responderPropuestaVisita,
   iniciarLlamadaDiagnostico,
   finalizarLlamadaDiagnostico,
+  bloquearUsuarioChat,
+  verificarBloqueoUsuario,
 } from "../controllers/chat.controller";
 
 
@@ -37,6 +39,8 @@ router.use(verifyToken);
 router.post("/iniciar", iniciarConversacion);
 
 router.get("/conversaciones", obtenerMisConversaciones);
+router.get("/verificar-bloqueo/:otro_usuario_id", verificarBloqueoUsuario);
+router.post("/:solicitud_id/bloquear", bloquearUsuarioChat);
 
 router.get("/:solicitud_id/mensajes", obtenerHistorialChat);
 
