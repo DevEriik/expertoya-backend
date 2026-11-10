@@ -7,6 +7,7 @@
     "start": "ts-node index.ts",
     "dev": "npx tsx watch index.ts",
     "seed": "tsx prisma/seed.ts",
+    "lint": "tsc --noEmit"
     "typecheck": "tsc --noEmit",
     "payment:smoke": "tsx scripts/payment-smoke.ts",
     "payment:reconcile": "tsx scripts/reconcile-payments.ts",

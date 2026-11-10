@@ -8,6 +8,8 @@ import {
   subirAdjuntoChat,
   obtenerSugerenciasIA,
   responderPropuestaVisita,
+  iniciarLlamadaDiagnostico,
+  finalizarLlamadaDiagnostico,
 } from "../controllers/chat.controller";
 
 
@@ -51,6 +53,9 @@ router.post(
 router.get("/:solicitud_id/sugerencias-ia", obtenerSugerenciasIA);
 
 router.put("/:solicitud_id/propuesta/:mensaje_id", responderPropuestaVisita);
+
+router.post("/:solicitud_id/call/iniciar", iniciarLlamadaDiagnostico);
+router.post("/:solicitud_id/call/finalizar", finalizarLlamadaDiagnostico);
 
 export default router;
 
