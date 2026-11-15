@@ -27,7 +27,8 @@ async function main() {
           descripcion_perfil: 'Soy un electricista matriculado con 10 años de experiencia.',
           ubicacion_geografica: 'Neuquén, Cipolletti',
           estado_validado: true,
-          calificacion_promedio: 4.8
+          calificacionPromedio: 4.8,
+          totalResenas: 1
         }
       }
     }

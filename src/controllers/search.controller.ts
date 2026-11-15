@@ -93,7 +93,7 @@ export const buscarProfesionales = async (
         nombre: p.usuario.nombre,
         apellido: p.usuario.apellido,
         fotoPerfil: p.usuario.foto_perfil,
-        calificacionPromedio: p.calificacion_promedio,
+        calificacionPromedio: (p as any).calificacionPromedio ?? (p as any).calificacion_promedio ?? 0,
         ubicacion: { direccion: p.ubicacion_geografica },
       },
       profesiones: (p.oficios ?? []).map((o: any) => ({
@@ -101,6 +101,8 @@ export const buscarProfesionales = async (
         nombre: o.nombre_oficio,
       })),
       descripcion: p.descripcion_perfil,
+      experiencia: p.experiencia,
+      aniosExperiencia: p.experiencia,
       tarifaBase,
       distanciaKm:
         distanciaKm !== null ? Number(distanciaKm.toFixed(2)) : undefined,

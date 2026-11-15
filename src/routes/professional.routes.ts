@@ -16,6 +16,7 @@ import {
 } from "../controllers/professional.controller";
 import { verifyToken } from "../middlewares/auth.middleware";
 import { buscarProfesionales } from "../controllers/search.controller";
+import { obtenerResenasProfesional } from "../controllers/review.controller";
 
 const router = Router();
 
@@ -23,6 +24,8 @@ router.get("/oficios", getOficios);
 router.get("/public", getPublicProfessionals);
 router.get("/buscar", buscarProfesionales);
 router.get("/public/:id/services", getPublicServicesByProfessionalId);
+router.get("/public/:id/reviews", obtenerResenasProfesional);
+router.get("/:id/reviews", obtenerResenasProfesional);
 
 const storage = multer.memoryStorage();
 
@@ -85,7 +88,11 @@ router.use(verifyToken);
 router.get("/profile", getProfile);
 router.put(
   "/profile",
-  upload.fields([{ name: "matricula_documento", maxCount: 5 }]),
+  upload.fields([
+    { name: "matricula_documento", maxCount: 5 },
+    { name: "foto_perfil", maxCount: 1 },
+    { name: "foto", maxCount: 1 },
+  ]),
   updateProfile,
 );
 router.get("/availability", getAvailability);
