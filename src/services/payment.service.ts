@@ -35,6 +35,8 @@ import {
   NotificationData,
 } from "./notification.service"; // Importar la clase y la instancia
 import { EmailService, EmailOptions, emailService } from "./email.service"; // Importar la clase, interfaz y la instancia
+import { ReceiptService, receiptService } from "./receipt.service";
+import { emitToRoom } from "../sockets/socket.registry";
 
 interface CreatePreferenceResult {
   pago_id: string;
@@ -79,6 +81,7 @@ interface PaymentDetailsResult {
     pagado_en: Date | null;
   } | null;
   comprobante_disponible: boolean;
+  comprobante_url: string | null;
 }
 
 interface ConfirmCompletionResult {
@@ -95,6 +98,7 @@ export class PaymentService {
     private readonly mpService: MercadoPagoService,
     private readonly notificationService: NotificacionService,
     private readonly emailService: EmailService,
+    private readonly receiptService: ReceiptService,
   ) {}
 
   /**
@@ -328,6 +332,82 @@ export class PaymentService {
         "No se pudo crear la preferencia de pago. Intenta de nuevo más tarde.",
       );
     }
+  }
+
+  /**
+   * Genera el comprobante digital del pago retenido, lo guarda en el PagoEscrow
+   * y emite `pago:retenido` a cliente y profesional por Socket.io.
+   *
+   * No relanza errores: un fallo del comprobante o de Socket.io no debe
+   * revertir un pago ya aprobado.
+   */
+  private async generarComprobanteRetencion(params: {
+    pago: PagoEscrow;
+    solicitudId: string;
+    cliente: Usuario;
+    profesional: Profesional & { usuario: Usuario };
+    servicioTitulo: string;
+  }): Promise<void> {
+    const { pago, solicitudId, cliente, profesional, servicioTitulo } = params;
+    const clienteId = cliente.id;
+    const profesionalId = profesional.id;
+
+    let comprobanteUrl: string | null = pago.comprobante_url;
+
+    try {
+      const comprobante = await this.receiptService.generarComprobantePago({
+        pagoId: pago.id,
+        solicitudId,
+        mpPaymentId: pago.transaccion_mp_id,
+        estadoPago: pago.estado_pago,
+        servicioTitulo,
+        moneda: pago.moneda,
+        montoTotal: pago.monto_total.toFixed(2),
+        comisionPlataforma: pago.comision_plataforma.toFixed(2),
+        comisionPorcentaje: pago.comision_porcentaje.toFixed(2),
+        feeMp: pago.fee_mp.toFixed(2),
+        netoProfesional: pago.monto_neto_profesional.toFixed(2),
+        fechaEmision: new Date(),
+        clienteNombre: `${cliente.nombre} ${cliente.apellido}`,
+        clienteEmail: cliente.email,
+        profesionalNombre: `${profesional.usuario.nombre} ${profesional.usuario.apellido}`,
+        profesionalEmail: profesional.usuario.email,
+      });
+
+      comprobanteUrl = comprobante.url;
+
+      await this.prismaClient.pagoEscrow.update({
+        where: { id: pago.id },
+        data: {
+          comprobante_url: comprobante.url,
+          comprobante_hash: comprobante.hash,
+          comprobante_numero: comprobante.numero,
+          comprobante_generado_en: comprobante.generadoEn,
+        },
+      });
+
+      console.log(`[Pago ${pago.id}] Comprobante generado: ${comprobante.url}`);
+    } catch (error: any) {
+      console.error(
+        `[Pago ${pago.id}] No se pudo generar el comprobante:`,
+        error?.message || error,
+      );
+    }
+
+    const payload = {
+      solicitudId,
+      pagoId: pago.id,
+      estado: pago.estado_pago,
+      montoTotal: pago.monto_total.toFixed(2),
+      moneda: pago.moneda,
+      comprobanteUrl,
+    };
+
+    // `usuario_` es la sala que ya usa el chat; `user:` la que pide la issue DAN-22.
+    emitToRoom(`usuario_${clienteId}`, "pago:retenido", payload);
+    emitToRoom(`user:${clienteId}`, "pago:retenido", payload);
+    emitToRoom(`usuario_${profesionalId}`, "pago:retenido", payload);
+    emitToRoom(`user:${profesionalId}`, "pago:retenido", payload);
   }
 
   /**
@@ -632,6 +712,14 @@ export class PaymentService {
                <p>¡Gracias por usar ExpertoYa!</p>`,
       });
 
+      await this.generarComprobanteRetencion({
+        pago: updatedPagoAndMovements,
+        solicitudId: existingPago.solicitud_id,
+        cliente: existingPago.solicitud.cliente,
+        profesional: existingPago.solicitud.servicio.profesional,
+        servicioTitulo: existingPago.solicitud.servicio.titulo_servicio,
+      });
+
       return updatedPagoAndMovements;
     } else {
       // Actualizar el estado si no fue aprobado o si ya estaba retenido
@@ -739,6 +827,57 @@ export class PaymentService {
           }
         : null,
       comprobante_disponible: comprobanteDisponible,
+      comprobante_url: ultimoPago?.comprobante_url ?? null,
+    };
+  }
+
+  /**
+   * Devuelve la URL del comprobante digital de una solicitud.
+   * Valida que el usuario sea el cliente, el profesional o un admin.
+   */
+  async getComprobante(
+    solicitudId: string,
+    userId: string,
+    userRole: string,
+  ): Promise<{
+    comprobante_url: string;
+    pago_id: string;
+    estado_pago: EstadoPago;
+  }> {
+    const solicitud = await this.prismaClient.solicitudTrabajo.findUnique({
+      where: { id: solicitudId },
+      include: {
+        servicio: { include: { profesional: true } },
+        pagos: { orderBy: { creado_en: "desc" }, take: 1 },
+      },
+    });
+
+    if (!solicitud) {
+      throw new Error("Solicitud de trabajo no encontrada.");
+    }
+
+    const isClient = solicitud.cliente_id === userId;
+    const isProfessional = solicitud.servicio.profesional.id === userId;
+    const isAdmin = userRole === "ADMIN";
+
+    if (!isClient && !isProfessional && !isAdmin) {
+      throw new Error(
+        "No tienes permiso para ver el comprobante de esta solicitud.",
+      );
+    }
+
+    const pago = solicitud.pagos[0];
+    if (!pago) {
+      throw new Error("La solicitud no tiene un pago asociado.");
+    }
+    if (!pago.comprobante_url) {
+      throw new Error("El comprobante todavía no está disponible.");
+    }
+
+    return {
+      comprobante_url: pago.comprobante_url,
+      pago_id: pago.id,
+      estado_pago: pago.estado_pago,
     };
   }
 
@@ -1376,4 +1515,5 @@ export const paymentService = new PaymentService(
   mercadoPagoService,
   notificacionService,
   emailService,
+  receiptService,
 );

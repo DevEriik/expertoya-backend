@@ -22,4 +22,24 @@ paymentRouter.post(
   paymentController.confirmCompletion,
 );
 
+// --- Aliases compatibles con el contrato de la issue DAN-22 ---
+
+paymentRouter.post(
+  "/create-preference",
+  authMiddleware(["CLIENTE"]),
+  paymentController.createPaymentPreference,
+);
+
+paymentRouter.post(
+  "/:solicitudId/confirmar-finalizacion",
+  authMiddleware(["CLIENTE", "PROFESIONAL"]),
+  paymentController.confirmCompletion,
+);
+
+paymentRouter.get(
+  "/:solicitudId/comprobante",
+  authMiddleware(["CLIENTE", "PROFESIONAL", "ADMIN"]),
+  paymentController.getComprobante,
+);
+
 export default paymentRouter;

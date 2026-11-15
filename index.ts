@@ -19,6 +19,7 @@ import paymentRoutes from "./src/routes/payment.routes";
 import adminPaymentRoutes from "./src/routes/admin-payment.routes";
 import webhookRoutes from "./src/routes/webhook.routes";
 import { iniciarCronNotificaciones } from "./src/jobs/notification.job";
+import { setIO } from "./src/sockets/socket.registry";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -68,6 +69,10 @@ app.use("/api/ia", iaRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/notificaciones", notificationRoutes);
 app.use("/api/usuarios", usuarioRoutes);
+
+// Alias del webhook según la issue DAN-22 (además de /api/webhooks/mercadopago)
+app.use("/api/payments/webhook", webhookRoutes);
+
 app.use("/api/payments", paymentRoutes);
 app.use("/api/admin/payments", adminPaymentRoutes);
 app.use("/api/webhooks/mercadopago", webhookRoutes);
@@ -89,6 +94,7 @@ const io = new Server(server, {
 });
 
 initChatSocket(io);
+setIO(io);
 
 server.listen(PORT as number, "0.0.0.0", () => {
   console.log(`Servidor y Socket.io iniciados en http://0.0.0.0:${PORT}`);

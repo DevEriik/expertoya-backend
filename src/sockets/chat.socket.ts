@@ -51,6 +51,8 @@ export const initChatSocket = (io: Server) => {
     if (userId) {
       marcarConectado(userId);
       socket.join(`usuario_${userId}`);
+      // Sala adicional compatible con el contrato de la issue DAN-22.
+      socket.join(`user:${userId}`);
     }
 
     const handleJoinSolicitud = async (data: { solicitud_id: string }) => {
