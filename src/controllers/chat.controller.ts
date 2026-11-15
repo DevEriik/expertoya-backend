@@ -2,10 +2,14 @@ import { Response } from "express";
 import { AuthRequest } from "../middlewares/auth.middleware";
 import { prisma } from "../config/prisma";
 import { supabase } from "../config/supabase";
+import { DailyService } from "../services/daily.service";
 import { notificacionService } from "../services/notification.service";
 import { estaUsuarioConectado } from "../sockets/presence";
+import { TipoMotivoReporte } from "@prisma/client";
+import { getIO } from "../sockets/io";
+import { finalizarLlamadaPorBloqueo } from "../sockets/chat.socket";
 
-const ESTADOS_BLOQUEADOS = ["FINALIZADO", "DISPUTA", "RECHAZADO"];
+const ESTADOS_BLOQUEADOS = ["FINALIZADO", "DISPUTA", "RECHAZADO", "BLOQUEADO"];
 
 /**
  * Obtiene la lista de solicitudes/conversaciones del usuario actual
@@ -106,9 +110,9 @@ export const obtenerMisConversaciones = async (
           : "Sin mensajes aún",
         timestamp: ultimoMensaje
           ? new Date(ultimoMensaje.enviado_en).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
+            hour: "2-digit",
+            minute: "2-digit",
+          })
           : "Nuevo",
         unreadCount: 0,
         status:
@@ -248,9 +252,8 @@ export const iniciarConversacion = async (
         select: { nombre: true, apellido: true },
       });
 
-      const nombreCliente = `${cliente?.nombre ?? "Un cliente"} ${
-        cliente?.apellido ?? ""
-      }`.trim();
+      const nombreCliente = `${cliente?.nombre ?? "Un cliente"} ${cliente?.apellido ?? ""
+        }`.trim();
 
       const previa = primer_mensaje?.trim();
 
@@ -351,7 +354,31 @@ export const obtenerHistorialChat = async (
     const estadoSolicitud = (
       solicitud.estado_solicitud_trabajo || ""
     ).toUpperCase();
-    const bloqueado = ESTADOS_BLOQUEADOS.includes(estadoSolicitud);
+
+    const otroId = esCliente
+      ? solicitud.servicio?.profesional_id
+      : solicitud.cliente_id;
+
+    const bloqueoActivo = await prisma.bloqueoUsuario.findFirst({
+      where: {
+        activo: true,
+        OR: [
+          { solicitud_id },
+          ...(otroId
+            ? [
+              { bloqueador_id: userId, bloqueado_id: otroId },
+              { bloqueador_id: otroId, bloqueado_id: userId },
+            ]
+            : []),
+        ],
+      },
+      orderBy: { fecha_bloqueo: "desc" },
+    });
+
+    const bloqueado =
+      ESTADOS_BLOQUEADOS.includes(estadoSolicitud) ||
+      Boolean(bloqueoActivo) ||
+      estadoSolicitud === "BLOQUEADO";
 
     const mensajes = await prisma.mensajeChat.findMany({
       where: { solicitud_id },
@@ -371,6 +398,16 @@ export const obtenerHistorialChat = async (
       solicitud_id,
       estado_solicitud: estadoSolicitud,
       bloqueado,
+      bloqueo_info: bloqueoActivo
+        ? {
+          id: bloqueoActivo.id,
+          bloqueador_id: bloqueoActivo.bloqueador_id,
+          bloqueado_id: bloqueoActivo.bloqueado_id,
+          motivo: bloqueoActivo.motivo,
+          fecha_bloqueo: bloqueoActivo.fecha_bloqueo,
+          es_bloqueador: bloqueoActivo.bloqueador_id === userId,
+        }
+        : null,
       mensajes,
     });
   } catch (error: any) {
@@ -429,10 +466,35 @@ export const subirAdjuntoChat = async (
     const estadoSolicitud = (
       solicitud.estado_solicitud_trabajo || ""
     ).toUpperCase();
-    if (ESTADOS_BLOQUEADOS.includes(estadoSolicitud)) {
+
+    const otroId = esCliente
+      ? solicitud.servicio?.profesional_id
+      : solicitud.cliente_id;
+
+    const bloqueoActivo = await prisma.bloqueoUsuario.findFirst({
+      where: {
+        activo: true,
+        OR: [
+          { solicitud_id },
+          ...(otroId
+            ? [
+              { bloqueador_id: userId, bloqueado_id: otroId },
+              { bloqueador_id: otroId, bloqueado_id: userId },
+            ]
+            : []),
+        ],
+      },
+    });
+
+    if (
+      ESTADOS_BLOQUEADOS.includes(estadoSolicitud) ||
+      estadoSolicitud === "BLOQUEADO" ||
+      Boolean(bloqueoActivo)
+    ) {
       res.status(403).json({
-        error: "El chat está bloqueado debido al estado de la solicitud",
+        error: "El chat está bloqueado. No se permiten enviar archivos ni mensajes.",
         estado_solicitud: estadoSolicitud,
+        bloqueado: true,
       });
       return;
     }
@@ -441,7 +503,7 @@ export const subirAdjuntoChat = async (
 
     try {
       await supabase.storage.createBucket(bucketName, { public: true });
-    } catch (_) {}
+    } catch (_) { }
 
     const isAudio =
       file.mimetype.startsWith("audio/") ||
@@ -580,10 +642,10 @@ Interlocutor: ${otroNombre}.
 Oficio / Servicio: ${solicitud.servicio?.titulo_servicio || "Oficio a domicilio"}.
 Historial de los últimos mensajes:
 ${ultimosMensajes
-  .map(
-    (m) => `${m.remitente_id === userId ? "Yo" : otroNombre}: "${m.contenido}"`,
-  )
-  .join("\n")}
+            .map(
+              (m) => `${m.remitente_id === userId ? "Yo" : otroNombre}: "${m.contenido}"`,
+            )
+            .join("\n")}
 
 Genera exactamente 3 sugerencias de respuesta breves (máximo 10 palabras cada una), en español rioplatense/latinoamericano natural, sumamente educadas y pertinentes para responder al interlocutor.
 Devuelve ÚNICAMENTE un JSON válido con este formato exacto:
@@ -976,5 +1038,375 @@ export const responderPropuestaVisita = async (
   } catch (error: any) {
     console.error("Error al responder propuesta:", error.message);
     res.status(500).json({ error: "Error interno al responder la propuesta" });
+  }
+};
+
+
+/**
+ * Genera una sala efímera de Daily.co para videollamada de diagnóstico visual
+ */
+export const iniciarLlamadaDiagnostico = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { solicitud_id } = req.params;
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const solicitud = await prisma.solicitudTrabajo.findUnique({
+      where: { id: solicitud_id },
+      include: {
+        servicio: { select: { profesional_id: true } },
+      },
+    });
+
+    if (!solicitud) {
+      res.status(404).json({ error: "Solicitud de trabajo no encontrada" });
+      return;
+    }
+
+    const esCliente = solicitud.cliente_id === userId;
+    const esProfesional = solicitud.servicio?.profesional_id === userId;
+
+    if (!esCliente && !esProfesional) {
+      res.status(403).json({ error: "No tienes permiso para acceder a esta llamada" });
+      return;
+    }
+
+    const estadoSolicitud = (solicitud.estado_solicitud_trabajo || "").toUpperCase();
+
+    const otroId = esCliente
+      ? solicitud.servicio?.profesional_id
+      : solicitud.cliente_id;
+
+    const bloqueoActivo = await prisma.bloqueoUsuario.findFirst({
+      where: {
+        activo: true,
+        OR: [
+          { solicitud_id },
+          ...(otroId
+            ? [
+              { bloqueador_id: userId, bloqueado_id: otroId },
+              { bloqueador_id: otroId, bloqueado_id: userId },
+            ]
+            : []),
+        ],
+      },
+    });
+
+    if (
+      ESTADOS_BLOQUEADOS.includes(estadoSolicitud) ||
+      estadoSolicitud === "BLOQUEADO" ||
+      Boolean(bloqueoActivo)
+    ) {
+      res.status(400).json({
+        error: `No es posible iniciar videollamada. La conversación se encuentra bloqueada o en estado ${estadoSolicitud}.`,
+      });
+      return;
+    }
+
+    const salaDaily = await DailyService.crearSalaEfimera({
+      solicitudId: solicitud.id,
+      duracionMinutos: 60,
+    });
+
+    const sesion = await prisma.sesionVideollamada.create({
+      data: {
+        solicitud_id: solicitud.id,
+        proveedor_id: salaDaily.url,
+        hora_inicio: new Date(),
+      },
+    });
+
+    res.json({
+      ok: true,
+      roomUrl: salaDaily.url,
+      roomName: salaDaily.name,
+      sesion_id: sesion.id,
+      expiresAt: salaDaily.expiresAt,
+    });
+  } catch (error: any) {
+    console.error("Error al iniciar llamada de diagnóstico:", error.message);
+    res.status(500).json({ error: "Error interno al crear sala de videollamada" });
+  }
+};
+
+/**
+ * Registra el fin de la sesión de videollamada y calcula su duración
+ */
+export const finalizarLlamadaDiagnostico = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { solicitud_id } = req.params;
+    const { sesion_id, duracion_segundos } = req.body;
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    if (sesion_id) {
+      const sesion = await prisma.sesionVideollamada.findUnique({
+        where: { id: sesion_id },
+      });
+
+      if (sesion) {
+        const horaFin = new Date();
+        const calculada = Math.max(
+          0,
+          Math.round((horaFin.getTime() - new Date(sesion.hora_inicio).getTime()) / 1000)
+        );
+
+        await prisma.sesionVideollamada.update({
+          where: { id: sesion_id },
+          data: {
+            hora_fin: horaFin,
+            duracion_segundos: duracion_segundos ?? calculada,
+          },
+        });
+      }
+    }
+
+    res.json({ ok: true, mensaje: "Sesión de videollamada concluida" });
+  } catch (error: any) {
+    console.error("Error al finalizar llamada de diagnóstico:", error.message);
+    res.status(500).json({ error: "Error interno al finalizar sesión de videollamada" });
+  }
+};
+
+/**
+ * Bloquea la comunicación bilateral en una conversación/solicitud.
+ * Cierra videollamadas en curso, pasa el estado a BLOQUEADO,
+ * emite eventos por Socket.io y opcionalmente genera reporte formal de denuncia.
+ */
+export const bloquearUsuarioChat = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    const { solicitud_id } = req.params;
+    const { motivo, denunciar, tipo_motivo, descripcion_denuncia } = req.body;
+
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    if (!motivo || typeof motivo !== "string" || !motivo.trim()) {
+      res.status(400).json({ error: "El motivo del bloqueo es obligatorio" });
+      return;
+    }
+
+    const solicitud = await prisma.solicitudTrabajo.findUnique({
+      where: { id: solicitud_id },
+      include: {
+        servicio: { select: { profesional_id: true } },
+      },
+    });
+
+    if (!solicitud) {
+      res.status(404).json({ error: "Solicitud de trabajo no encontrada" });
+      return;
+    }
+
+    const esCliente = solicitud.cliente_id === userId;
+    const esProfesional = solicitud.servicio?.profesional_id === userId;
+
+    if (!esCliente && !esProfesional) {
+      res.status(403).json({ error: "No tienes autorización para operar sobre este chat" });
+      return;
+    }
+
+    const otroUsuarioId = esCliente
+      ? solicitud.servicio.profesional_id
+      : solicitud.cliente_id;
+
+    const nuevoBloqueo = await prisma.bloqueoUsuario.create({
+      data: {
+        bloqueador_id: userId,
+        bloqueado_id: otroUsuarioId,
+        solicitud_id: solicitud.id,
+        motivo: motivo.trim(),
+        activo: true,
+      },
+      include: {
+        bloqueador: {
+          select: { id: true, nombre: true, apellido: true, email: true, rol: true },
+        },
+        bloqueado: {
+          select: { id: true, nombre: true, apellido: true, email: true, rol: true },
+        },
+      },
+    });
+
+    await prisma.solicitudTrabajo.update({
+      where: { id: solicitud.id },
+      data: { estado_solicitud_trabajo: "BLOQUEADO" as any },
+    });
+
+    let nuevoReporte = null;
+    if (denunciar || tipo_motivo) {
+      const motivosValidos = Object.values(TipoMotivoReporte);
+      const motivoFinal: TipoMotivoReporte =
+        tipo_motivo && motivosValidos.includes(tipo_motivo as TipoMotivoReporte)
+          ? (tipo_motivo as TipoMotivoReporte)
+          : TipoMotivoReporte.OTRO;
+
+      nuevoReporte = await prisma.reporteDenuncia.create({
+        data: {
+          denunciante_id: userId,
+          denunciado_id: otroUsuarioId,
+          solicitud_id: solicitud.id,
+          tipo_motivo: motivoFinal,
+          descripcion: (descripcion_denuncia || motivo).trim(),
+          estado: "PENDIENTE",
+        },
+        include: {
+          denunciante: {
+            select: { id: true, nombre: true, apellido: true, email: true, rol: true },
+          },
+          denunciado: {
+            select: { id: true, nombre: true, apellido: true, email: true, rol: true },
+          },
+        },
+      });
+    }
+
+    try {
+      await prisma.mensajeChat.create({
+        data: {
+          solicitud_id: solicitud.id,
+          remitente_id: userId,
+          contenido: "🚫 La comunicación ha sido bloqueada. No se pueden enviar más mensajes ni realizar videollamadas.",
+          leido: true,
+        },
+      });
+    } catch (_) { }
+
+    await finalizarLlamadaPorBloqueo(
+      solicitud.id,
+      "Llamada finalizada: La comunicación ha sido bloqueada"
+    );
+
+    const io = getIO();
+    const roomName = `solicitud_${solicitud.id}`;
+
+    if (io) {
+      io.to(roomName).emit("chat_bloqueado", {
+        solicitud_id: solicitud.id,
+        bloqueador_id: userId,
+        bloqueado_id: otroUsuarioId,
+        motivo: motivo.trim(),
+        estado_solicitud: "BLOQUEADO",
+      });
+
+      io.to(`usuario_${otroUsuarioId}`).emit("chat_bloqueado", {
+        solicitud_id: solicitud.id,
+        bloqueador_id: userId,
+        motivo: motivo.trim(),
+        estado_solicitud: "BLOQUEADO",
+      });
+      io.to(`usuario_${userId}`).emit("chat_bloqueado", {
+        solicitud_id: solicitud.id,
+        bloqueador_id: userId,
+        motivo: motivo.trim(),
+        estado_solicitud: "BLOQUEADO",
+      });
+
+      const alertaAdmin = {
+        tipo: "BLOQUEO_USUARIO",
+        bloqueo_id: nuevoBloqueo.id,
+        solicitud_id: solicitud.id,
+        bloqueador: nuevoBloqueo.bloqueador,
+        bloqueado: nuevoBloqueo.bloqueado,
+        motivo: motivo.trim(),
+        denuncia_creada: Boolean(nuevoReporte),
+        reporte_id: nuevoReporte?.id || null,
+        fecha_bloqueo: nuevoBloqueo.fecha_bloqueo,
+      };
+      io.to("admins").emit("admin:alerta_bloqueo", alertaAdmin);
+      io.emit("admin:alerta_bloqueo", alertaAdmin);
+
+      if (nuevoReporte) {
+        const alertaDenuncia = {
+          tipo: "NUEVO_REPORTE",
+          reporte_id: nuevoReporte.id,
+          solicitud_id: solicitud.id,
+          denunciante: nuevoReporte.denunciante,
+          denunciado: nuevoReporte.denunciado,
+          tipo_motivo: nuevoReporte.tipo_motivo,
+          descripcion: nuevoReporte.descripcion,
+          creado_en: nuevoReporte.creado_en,
+        };
+        io.to("admins").emit("admin:nuevo_reporte", alertaDenuncia);
+        io.emit("admin:nuevo_reporte", alertaDenuncia);
+      }
+    }
+
+    res.status(200).json({
+      ok: true,
+      mensaje: "Usuario y comunicación bloqueados exitosamente",
+      bloqueo: nuevoBloqueo,
+      reporte: nuevoReporte,
+    });
+  } catch (error: any) {
+    console.error("Error al bloquear usuario en chat:", error.message);
+    res.status(500).json({ error: "Error interno al procesar el bloqueo del usuario" });
+  }
+};
+
+/**
+ * Verifica si existe un bloqueo activo bilateral entre dos usuarios
+ */
+export const verificarBloqueoUsuario = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    const { otro_usuario_id } = req.params;
+
+    if (!userId) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const bloqueo = await prisma.bloqueoUsuario.findFirst({
+      where: {
+        activo: true,
+        OR: [
+          { bloqueador_id: userId, bloqueado_id: otro_usuario_id },
+          { bloqueador_id: otro_usuario_id, bloqueado_id: userId },
+        ],
+      },
+      orderBy: { fecha_bloqueo: "desc" },
+    });
+
+    res.json({
+      bloqueado: Boolean(bloqueo),
+      es_bloqueador: bloqueo ? bloqueo.bloqueador_id === userId : false,
+      bloqueo: bloqueo
+        ? {
+          id: bloqueo.id,
+          solicitud_id: bloqueo.solicitud_id,
+          motivo: bloqueo.motivo,
+          fecha_bloqueo: bloqueo.fecha_bloqueo,
+          bloqueador_id: bloqueo.bloqueador_id,
+          bloqueado_id: bloqueo.bloqueado_id,
+        }
+        : null,
+    });
+  } catch (error: any) {
+    console.error("Error al verificar bloqueo:", error.message);
+    res.status(500).json({ error: "Error interno al verificar estado de bloqueo" });
   }
 };

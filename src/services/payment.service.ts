@@ -36,7 +36,7 @@ import {
 } from "./notification.service"; // Importar la clase y la instancia
 import { EmailService, EmailOptions, emailService } from "./email.service"; // Importar la clase, interfaz y la instancia
 import { ReceiptService, receiptService } from "./receipt.service";
-import { emitToRoom } from "../sockets/socket.registry";
+import { emitToRoom } from "../sockets/io";
 
 interface CreatePreferenceResult {
   pago_id: string;

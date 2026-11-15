@@ -1,7 +1,9 @@
 import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/prisma";
+import { DailyService } from "../services/daily.service";
 import { notificacionService } from "../services/notification.service";
+import { setIO, getIO } from "./io";
 import {
   marcarConectado,
   marcarDesconectado,
@@ -17,9 +19,88 @@ export interface AuthenticatedSocket extends Socket {
   user?: SocketUser;
 }
 
-const ESTADOS_BLOQUEADOS = ["FINALIZADO", "DISPUTA", "RECHAZADO"];
+const ESTADOS_BLOQUEADOS = ["FINALIZADO", "DISPUTA", "RECHAZADO", "BLOQUEADO"];
+
+interface LlamadaActiva {
+  solicitud_id: string;
+  caller_id: string;
+  caller_socket_id: string;
+  recipient_id: string;
+  recipient_socket_id?: string;
+  room_url: string;
+  room_name: string;
+  sesion_id?: string;
+  iniciado_en: Date;
+  estado: "invitando" | "conectada" | "finalizada";
+}
+
+const llamadasActivas = new Map<string, LlamadaActiva>();
+const socketToSolicitudLlamada = new Map<string, string>();
+
+/**
+ * Fuerza el corte inmediato de una videollamada activa asociada a una solicitud
+ * cuando un usuario es bloqueado o denunciado.
+ */
+export const finalizarLlamadaPorBloqueo = async (
+  solicitud_id: string,
+  motivo = "Llamada finalizada: La comunicación ha sido bloqueada",
+): Promise<void> => {
+  const io = getIO();
+  const llamada = llamadasActivas.get(solicitud_id);
+  const roomName = `solicitud_${solicitud_id}`;
+
+  if (llamada) {
+    llamada.estado = "finalizada";
+    const duracion = Math.max(
+      0,
+      Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000),
+    );
+    if (llamada.sesion_id) {
+      await prisma.sesionVideollamada
+        .update({
+          where: { id: llamada.sesion_id },
+          data: { hora_fin: new Date(), duracion_segundos: duracion },
+        })
+        .catch(() => {});
+    }
+    llamadasActivas.delete(solicitud_id);
+    if (llamada.caller_socket_id)
+      socketToSolicitudLlamada.delete(llamada.caller_socket_id);
+    if (llamada.recipient_socket_id)
+      socketToSolicitudLlamada.delete(llamada.recipient_socket_id);
+  }
+
+  const sesionAbierta = await prisma.sesionVideollamada.findFirst({
+    where: { solicitud_id, hora_fin: null },
+    orderBy: { hora_inicio: "desc" },
+  });
+  if (sesionAbierta) {
+    const duracion = Math.max(
+      0,
+      Math.round(
+        (Date.now() - new Date(sesionAbierta.hora_inicio).getTime()) / 1000,
+      ),
+    );
+    await prisma.sesionVideollamada
+      .update({
+        where: { id: sesionAbierta.id },
+        data: { hora_fin: new Date(), duracion_segundos: duracion },
+      })
+      .catch(() => {});
+  }
+
+  if (io) {
+    io.to(roomName).emit("call:ended", {
+      solicitud_id,
+      duracion: 0,
+      motivo,
+      bloqueado: true,
+    });
+  }
+};
 
 export const initChatSocket = (io: Server) => {
+  setIO(io);
   io.use((socket: AuthenticatedSocket, next) => {
     try {
       const token =
@@ -51,8 +132,11 @@ export const initChatSocket = (io: Server) => {
     if (userId) {
       marcarConectado(userId);
       socket.join(`usuario_${userId}`);
-      // Sala adicional compatible con el contrato de la issue DAN-22.
+
       socket.join(`user:${userId}`);
+      if (socket.user?.rol === "ADMIN") {
+        socket.join("admins");
+      }
     }
 
     const handleJoinSolicitud = async (data: { solicitud_id: string }) => {
@@ -87,12 +171,46 @@ export const initChatSocket = (io: Server) => {
         const estadoActual = (
           solicitud.estado_solicitud_trabajo || ""
         ).toUpperCase();
-        const bloqueado = ESTADOS_BLOQUEADOS.includes(estadoActual);
+
+        const otroId = esCliente
+          ? solicitud.servicio?.profesional_id
+          : solicitud.cliente_id;
+
+        const bloqueoActivo = await prisma.bloqueoUsuario.findFirst({
+          where: {
+            activo: true,
+            OR: [
+              { solicitud_id },
+              ...(otroId
+                ? [
+                    { bloqueador_id: userId, bloqueado_id: otroId },
+                    { bloqueador_id: otroId, bloqueado_id: userId },
+                  ]
+                : []),
+            ],
+          },
+          orderBy: { fecha_bloqueo: "desc" },
+        });
+
+        const bloqueado =
+          ESTADOS_BLOQUEADOS.includes(estadoActual) ||
+          Boolean(bloqueoActivo) ||
+          estadoActual === "BLOQUEADO";
 
         socket.emit("chat_unido", {
           solicitud_id,
           bloqueado,
           estado_solicitud: estadoActual,
+          bloqueo: bloqueoActivo
+            ? {
+                id: bloqueoActivo.id,
+                bloqueador_id: bloqueoActivo.bloqueador_id,
+                bloqueado_id: bloqueoActivo.bloqueado_id,
+                motivo: bloqueoActivo.motivo,
+                fecha_bloqueo: bloqueoActivo.fecha_bloqueo,
+                es_bloqueador: bloqueoActivo.bloqueador_id === userId,
+              }
+            : null,
         });
 
         await prisma.mensajeChat.updateMany({
@@ -149,9 +267,40 @@ export const initChatSocket = (io: Server) => {
           const estadoActual = (
             solicitud.estado_solicitud_trabajo || ""
           ).toUpperCase();
-          if (ESTADOS_BLOQUEADOS.includes(estadoActual)) {
-            const errorMsg = `No se pueden enviar mensajes: El trabajo se encuentra en estado ${estadoActual}.`;
-            socket.emit("chat_bloqueado", { solicitud_id, motivo: errorMsg });
+
+          const destinatarioId =
+            userId === solicitud.cliente_id
+              ? solicitud.servicio?.profesional_id
+              : solicitud.cliente_id;
+
+          const bloqueoActivo = await prisma.bloqueoUsuario.findFirst({
+            where: {
+              activo: true,
+              OR: [
+                { solicitud_id },
+                ...(destinatarioId
+                  ? [
+                      { bloqueador_id: userId, bloqueado_id: destinatarioId },
+                      { bloqueador_id: destinatarioId, bloqueado_id: userId },
+                    ]
+                  : []),
+              ],
+            },
+          });
+
+          if (
+            ESTADOS_BLOQUEADOS.includes(estadoActual) ||
+            estadoActual === "BLOQUEADO" ||
+            Boolean(bloqueoActivo)
+          ) {
+            const errorMsg = bloqueoActivo
+              ? "No se pueden enviar mensajes: La comunicación ha sido bloqueada."
+              : `No se pueden enviar mensajes: El trabajo se encuentra en estado ${estadoActual}.`;
+            socket.emit("chat_bloqueado", {
+              solicitud_id,
+              motivo: errorMsg,
+              bloqueado: true,
+            });
             callback?.({ error: errorMsg, bloqueado: true });
             return;
           }
@@ -183,11 +332,6 @@ export const initChatSocket = (io: Server) => {
             temp_id,
             mensaje_id: nuevoMensaje.id,
           });
-
-          const destinatarioId =
-            userId === solicitud.cliente_id
-              ? solicitud.servicio?.profesional_id
-              : solicitud.cliente_id;
 
           if (destinatarioId && !estaUsuarioConectado(destinatarioId)) {
             const vistaPrevia = contenido?.trim()
@@ -341,8 +485,474 @@ export const initChatSocket = (io: Server) => {
       },
     );
 
-    socket.on("disconnect", () => {
+    /**
+     * Emite una invitación para iniciar videollamada de diagnóstico visual
+     */
+    socket.on(
+      "call:invite",
+      async (data: { solicitud_id: string }, callback?: (res: any) => void) => {
+        try {
+          const { solicitud_id } = data || {};
+          if (!solicitud_id || !userId) {
+            callback?.({
+              error: "Parámetros incompletos para iniciar llamada",
+            });
+            return;
+          }
+
+          const solicitud = await prisma.solicitudTrabajo.findUnique({
+            where: { id: solicitud_id },
+            include: {
+              cliente: {
+                select: {
+                  id: true,
+                  nombre: true,
+                  apellido: true,
+                  foto_perfil: true,
+                  rol: true,
+                },
+              },
+              servicio: {
+                select: {
+                  profesional_id: true,
+                  profesional: {
+                    include: {
+                      usuario: {
+                        select: {
+                          id: true,
+                          nombre: true,
+                          apellido: true,
+                          foto_perfil: true,
+                          rol: true,
+                        },
+                      },
+                      oficios: true,
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+          if (!solicitud) {
+            socket.emit("call:error", { mensaje: "Solicitud no encontrada" });
+            callback?.({ error: "Solicitud no encontrada" });
+            return;
+          }
+
+          const esCliente = solicitud.cliente_id === userId;
+          const esProfesional = solicitud.servicio?.profesional_id === userId;
+
+          if (!esCliente && !esProfesional) {
+            socket.emit("call:error", {
+              mensaje:
+                "No tienes autorización para iniciar videollamada en este chat",
+            });
+            callback?.({ error: "No autorizado" });
+            return;
+          }
+
+          const estadoActual = (
+            solicitud.estado_solicitud_trabajo || ""
+          ).toUpperCase();
+
+          const recipientId = esCliente
+            ? solicitud.servicio.profesional_id
+            : solicitud.cliente_id;
+
+          const bloqueoActivo = await prisma.bloqueoUsuario.findFirst({
+            where: {
+              activo: true,
+              OR: [
+                { solicitud_id },
+                { bloqueador_id: userId, bloqueado_id: recipientId },
+                { bloqueador_id: recipientId, bloqueado_id: userId },
+              ],
+            },
+          });
+
+          if (
+            ESTADOS_BLOQUEADOS.includes(estadoActual) ||
+            estadoActual === "BLOQUEADO" ||
+            Boolean(bloqueoActivo)
+          ) {
+            const errorMsg = bloqueoActivo
+              ? "No se puede iniciar la videollamada: La comunicación ha sido bloqueada."
+              : `No se puede iniciar la llamada: la conversación se encuentra cerrada o en estado ${estadoActual}.`;
+            socket.emit("call:error", { mensaje: errorMsg });
+            callback?.({ error: errorMsg });
+            return;
+          }
+
+          const callerData = esCliente
+            ? {
+                id: solicitud.cliente.id,
+                name: `${solicitud.cliente.nombre} ${solicitud.cliente.apellido}`.trim(),
+                avatar: solicitud.cliente.foto_perfil,
+                role: "CLIENTE" as const,
+              }
+            : {
+                id: solicitud.servicio.profesional.usuario.id,
+                name: `${solicitud.servicio.profesional.usuario.nombre} ${solicitud.servicio.profesional.usuario.apellido}`.trim(),
+                avatar: solicitud.servicio.profesional.usuario.foto_perfil,
+                role: "PROFESIONAL" as const,
+              };
+
+          const salaDaily = await DailyService.crearSalaEfimera({
+            solicitudId: solicitud.id,
+            duracionMinutos: 60,
+          });
+
+          const sesion = await prisma.sesionVideollamada.create({
+            data: {
+              solicitud_id,
+              proveedor_id: salaDaily.url,
+              hora_inicio: new Date(),
+            },
+          });
+
+          const llamada: LlamadaActiva = {
+            solicitud_id,
+            caller_id: userId,
+            caller_socket_id: socket.id,
+            recipient_id: recipientId,
+            room_url: salaDaily.url,
+            room_name: salaDaily.name,
+            sesion_id: sesion.id,
+            iniciado_en: new Date(),
+            estado: "invitando",
+          };
+
+          llamadasActivas.set(solicitud_id, llamada);
+          socketToSolicitudLlamada.set(socket.id, solicitud_id);
+
+          const roomName = `solicitud_${solicitud_id}`;
+
+          socket.to(roomName).emit("call:invite", {
+            solicitud_id,
+            roomUrl: salaDaily.url,
+            roomName: salaDaily.name,
+            caller: callerData,
+            sesion_id: sesion.id,
+          });
+
+          socket.emit("call:ringing", {
+            solicitud_id,
+            roomUrl: salaDaily.url,
+            roomName: salaDaily.name,
+            sesion_id: sesion.id,
+          });
+
+          callback?.({
+            ok: true,
+            roomUrl: salaDaily.url,
+            roomName: salaDaily.name,
+            sesion_id: sesion.id,
+          });
+        } catch (error: any) {
+          console.error("Error en call:invite:", error.message);
+          callback?.({ error: "Error interno al iniciar videollamada" });
+        }
+      },
+    );
+
+    /**
+     * El receptor acepta la videollamada entrante
+     */
+    socket.on("call:accept", (data: { solicitud_id: string }) => {
+      try {
+        const { solicitud_id } = data || {};
+        if (!solicitud_id) return;
+
+        const llamada = llamadasActivas.get(solicitud_id);
+        if (llamada) {
+          llamada.estado = "conectada";
+          llamada.recipient_socket_id = socket.id;
+          socketToSolicitudLlamada.set(socket.id, solicitud_id);
+
+          const roomName = `solicitud_${solicitud_id}`;
+          io.to(roomName).emit("call:accepted", {
+            solicitud_id,
+            roomUrl: llamada.room_url,
+            roomName: llamada.room_name,
+            sesion_id: llamada.sesion_id,
+          });
+        }
+      } catch (err: any) {
+        console.error("Error en call:accept:", err.message);
+      }
+    });
+
+    /**
+     * El receptor rechaza la videollamada
+     */
+    socket.on(
+      "call:reject",
+      async (data: { solicitud_id: string; reason?: string }) => {
+        try {
+          const { solicitud_id, reason } = data || {};
+          if (!solicitud_id) return;
+
+          const llamada = llamadasActivas.get(solicitud_id);
+          const roomName = `solicitud_${solicitud_id}`;
+
+          io.to(roomName).emit("call:rejected", {
+            solicitud_id,
+            reason: reason || "Llamada rechazada",
+          });
+
+          const senderId = userId || llamada?.caller_id;
+          if (senderId) {
+            try {
+              const msgRechazo = await prisma.mensajeChat.create({
+                data: {
+                  solicitud_id,
+                  remitente_id: senderId,
+                  contenido: "📞 Videollamada rechazada",
+                  leido: false,
+                },
+                include: {
+                  remitente: {
+                    select: {
+                      id: true,
+                      nombre: true,
+                      apellido: true,
+                      foto_perfil: true,
+                      rol: true,
+                    },
+                  },
+                },
+              });
+              io.to(roomName).emit("nuevo_mensaje", msgRechazo);
+              io.to(roomName).emit("mensaje_recibido", msgRechazo);
+            } catch (e: any) {
+              console.warn(
+                "No se pudo registrar mensaje de llamada rechazada:",
+                e.message,
+              );
+            }
+          }
+
+          if (llamada) {
+            if (llamada.sesion_id) {
+              await prisma.sesionVideollamada
+                .update({
+                  where: { id: llamada.sesion_id },
+                  data: { hora_fin: new Date(), duracion_segundos: 0 },
+                })
+                .catch(() => {});
+            }
+
+            llamadasActivas.delete(solicitud_id);
+            socketToSolicitudLlamada.delete(socket.id);
+            if (llamada.caller_socket_id) {
+              socketToSolicitudLlamada.delete(llamada.caller_socket_id);
+            }
+            if (llamada.recipient_socket_id) {
+              socketToSolicitudLlamada.delete(llamada.recipient_socket_id);
+            }
+          }
+        } catch (err: any) {
+          console.error("Error en call:reject:", err.message);
+        }
+      },
+    );
+
+    /**
+     * Finaliza la videollamada en curso y persiste la duración
+     */
+    socket.on(
+      "call:end",
+      async (data: { solicitud_id: string; duracion?: number }) => {
+        try {
+          const { solicitud_id, duracion: duracionParam } = data || {};
+          if (!solicitud_id) return;
+
+          const llamada = llamadasActivas.get(solicitud_id);
+          const roomName = `solicitud_${solicitud_id}`;
+
+          let duracion = duracionParam ?? 0;
+          if (!duracion && llamada) {
+            duracion = Math.max(
+              0,
+              Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000),
+            );
+          }
+
+          if (llamada) {
+            if (llamada.sesion_id) {
+              await prisma.sesionVideollamada
+                .update({
+                  where: { id: llamada.sesion_id },
+                  data: { hora_fin: new Date(), duracion_segundos: duracion },
+                })
+                .catch(() => {});
+            }
+
+            llamadasActivas.delete(solicitud_id);
+            socketToSolicitudLlamada.delete(socket.id);
+            if (llamada.caller_socket_id) {
+              socketToSolicitudLlamada.delete(llamada.caller_socket_id);
+            }
+            if (llamada.recipient_socket_id) {
+              socketToSolicitudLlamada.delete(llamada.recipient_socket_id);
+            }
+          }
+
+          io.to(roomName).emit("call:ended", {
+            solicitud_id,
+            duracion,
+            finalizado_por: userId,
+          });
+
+          let resumenTexto = "";
+          if (duracion > 0) {
+            const mins = Math.floor(duracion / 60);
+            const secs = duracion % 60;
+            const tiempoStr =
+              mins > 0 ? `${mins} min ${secs} seg` : `${secs} seg`;
+            resumenTexto = `📞 Videollamada de Diagnóstico finalizada · ${tiempoStr}`;
+          } else if (llamada?.estado === "conectada") {
+            resumenTexto = `📞 Videollamada de Diagnóstico finalizada`;
+          } else {
+            resumenTexto = "📞 Videollamada perdida / cancelada";
+          }
+
+          let endSenderId = userId || llamada?.caller_id;
+          if (!endSenderId) {
+            const sol = await prisma.solicitudTrabajo.findUnique({
+              where: { id: solicitud_id },
+              select: { cliente_id: true },
+            });
+            endSenderId = sol?.cliente_id;
+          }
+
+          if (resumenTexto && endSenderId) {
+            try {
+              const msgFin = await prisma.mensajeChat.create({
+                data: {
+                  solicitud_id,
+                  remitente_id: endSenderId,
+                  contenido: resumenTexto,
+                  leido: false,
+                },
+                include: {
+                  remitente: {
+                    select: {
+                      id: true,
+                      nombre: true,
+                      apellido: true,
+                      foto_perfil: true,
+                      rol: true,
+                    },
+                  },
+                },
+              });
+              io.to(roomName).emit("nuevo_mensaje", msgFin);
+              io.to(roomName).emit("mensaje_recibido", msgFin);
+            } catch (e: any) {
+              console.warn(
+                "No se pudo registrar mensaje resumen de llamada:",
+                e.message,
+              );
+            }
+          }
+        } catch (err: any) {
+          console.error("Error en call:end:", err.message);
+        }
+      },
+    );
+
+    /**
+     * Gestión de desconexión del socket (Teardown automático si estaba en llamada y presencia)
+     */
+    socket.on("disconnect", async () => {
       if (userId) marcarDesconectado(userId);
+
+      const solicitudId = socketToSolicitudLlamada.get(socket.id);
+      if (solicitudId) {
+        setTimeout(async () => {
+          const llamada = llamadasActivas.get(solicitudId);
+          if (
+            llamada &&
+            (llamada.caller_socket_id === socket.id ||
+              llamada.recipient_socket_id === socket.id)
+          ) {
+            const roomName = `solicitud_${solicitudId}`;
+            try {
+              const socketsInRoom = await io.in(roomName).fetchSockets();
+              const sigueEnSala = socketsInRoom.some(
+                (s: any) => s.user?.userId === userId,
+              );
+              if (sigueEnSala) {
+                console.log(
+                  `🔌 [Socket.io] Usuario ${userId} sigue presente con otro socket. Manteniendo llamada.`,
+                );
+                return;
+              }
+            } catch (_) {}
+
+            console.log(
+              `🔌 [Socket.io] Usuario ${userId} ausente tras tolerancia. Finalizando llamada.`,
+            );
+            llamada.estado = "finalizada";
+            const duracion = Math.max(
+              0,
+              Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000),
+            );
+
+            if (llamada.sesion_id) {
+              await prisma.sesionVideollamada
+                .update({
+                  where: { id: llamada.sesion_id },
+                  data: { hora_fin: new Date(), duracion_segundos: duracion },
+                })
+                .catch(() => {});
+            }
+
+            io.to(roomName).emit("call:ended", {
+              solicitud_id: solicitudId,
+              duracion,
+              motivo: "El interlocutor se ha desconectado de la red",
+            });
+
+            const discSenderId = userId || llamada.caller_id;
+            if (discSenderId) {
+              try {
+                const mins = Math.floor(duracion / 60);
+                const secs = duracion % 60;
+                const durTxt =
+                  mins > 0 ? `${mins} min ${secs} seg` : `${secs} seg`;
+                const msgDesc = await prisma.mensajeChat.create({
+                  data: {
+                    solicitud_id: solicitudId,
+                    remitente_id: discSenderId,
+                    contenido: `📞 Videollamada finalizada por desconexión de red · ${durTxt}`,
+                    leido: false,
+                  },
+                  include: {
+                    remitente: {
+                      select: {
+                        id: true,
+                        nombre: true,
+                        apellido: true,
+                        foto_perfil: true,
+                        rol: true,
+                      },
+                    },
+                  },
+                });
+                io.to(roomName).emit("nuevo_mensaje", msgDesc);
+                io.to(roomName).emit("mensaje_recibido", msgDesc);
+              } catch (_) {}
+            }
+
+            llamadasActivas.delete(solicitudId);
+          }
+        }, 6000);
+
+        socketToSolicitudLlamada.delete(socket.id);
+      }
       console.log(`🔌 [Socket.io] Usuario desconectado: ${userId}`);
     });
   });
