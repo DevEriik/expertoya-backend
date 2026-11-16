@@ -43,7 +43,7 @@ const socketToSolicitudLlamada = new Map<string, string>();
  */
 export const finalizarLlamadaPorBloqueo = async (
   solicitud_id: string,
-  motivo = "Llamada finalizada: La comunicación ha sido bloqueada"
+  motivo = "Llamada finalizada: La comunicación ha sido bloqueada",
 ): Promise<void> => {
   const io = getIO();
   const llamada = llamadasActivas.get(solicitud_id);
@@ -53,7 +53,7 @@ export const finalizarLlamadaPorBloqueo = async (
     llamada.estado = "finalizada";
     const duracion = Math.max(
       0,
-      Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000)
+      Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000),
     );
     if (llamada.sesion_id) {
       await prisma.sesionVideollamada
@@ -64,8 +64,10 @@ export const finalizarLlamadaPorBloqueo = async (
         .catch(() => {});
     }
     llamadasActivas.delete(solicitud_id);
-    if (llamada.caller_socket_id) socketToSolicitudLlamada.delete(llamada.caller_socket_id);
-    if (llamada.recipient_socket_id) socketToSolicitudLlamada.delete(llamada.recipient_socket_id);
+    if (llamada.caller_socket_id)
+      socketToSolicitudLlamada.delete(llamada.caller_socket_id);
+    if (llamada.recipient_socket_id)
+      socketToSolicitudLlamada.delete(llamada.recipient_socket_id);
   }
 
   const sesionAbierta = await prisma.sesionVideollamada.findFirst({
@@ -75,7 +77,9 @@ export const finalizarLlamadaPorBloqueo = async (
   if (sesionAbierta) {
     const duracion = Math.max(
       0,
-      Math.round((Date.now() - new Date(sesionAbierta.hora_inicio).getTime()) / 1000)
+      Math.round(
+        (Date.now() - new Date(sesionAbierta.hora_inicio).getTime()) / 1000,
+      ),
     );
     await prisma.sesionVideollamada
       .update({
@@ -128,6 +132,8 @@ export const initChatSocket = (io: Server) => {
     if (userId) {
       marcarConectado(userId);
       socket.join(`usuario_${userId}`);
+
+      socket.join(`user:${userId}`);
       if (socket.user?.rol === "ADMIN") {
         socket.join("admins");
       }
@@ -484,14 +490,13 @@ export const initChatSocket = (io: Server) => {
      */
     socket.on(
       "call:invite",
-      async (
-        data: { solicitud_id: string },
-        callback?: (res: any) => void
-      ) => {
+      async (data: { solicitud_id: string }, callback?: (res: any) => void) => {
         try {
           const { solicitud_id } = data || {};
           if (!solicitud_id || !userId) {
-            callback?.({ error: "Parámetros incompletos para iniciar llamada" });
+            callback?.({
+              error: "Parámetros incompletos para iniciar llamada",
+            });
             return;
           }
 
@@ -499,7 +504,13 @@ export const initChatSocket = (io: Server) => {
             where: { id: solicitud_id },
             include: {
               cliente: {
-                select: { id: true, nombre: true, apellido: true, foto_perfil: true, rol: true },
+                select: {
+                  id: true,
+                  nombre: true,
+                  apellido: true,
+                  foto_perfil: true,
+                  rol: true,
+                },
               },
               servicio: {
                 select: {
@@ -507,7 +518,13 @@ export const initChatSocket = (io: Server) => {
                   profesional: {
                     include: {
                       usuario: {
-                        select: { id: true, nombre: true, apellido: true, foto_perfil: true, rol: true },
+                        select: {
+                          id: true,
+                          nombre: true,
+                          apellido: true,
+                          foto_perfil: true,
+                          rol: true,
+                        },
                       },
                       oficios: true,
                     },
@@ -528,13 +545,16 @@ export const initChatSocket = (io: Server) => {
 
           if (!esCliente && !esProfesional) {
             socket.emit("call:error", {
-              mensaje: "No tienes autorización para iniciar videollamada en este chat",
+              mensaje:
+                "No tienes autorización para iniciar videollamada en este chat",
             });
             callback?.({ error: "No autorizado" });
             return;
           }
 
-          const estadoActual = (solicitud.estado_solicitud_trabajo || "").toUpperCase();
+          const estadoActual = (
+            solicitud.estado_solicitud_trabajo || ""
+          ).toUpperCase();
 
           const recipientId = esCliente
             ? solicitud.servicio.profesional_id
@@ -566,17 +586,17 @@ export const initChatSocket = (io: Server) => {
 
           const callerData = esCliente
             ? {
-              id: solicitud.cliente.id,
-              name: `${solicitud.cliente.nombre} ${solicitud.cliente.apellido}`.trim(),
-              avatar: solicitud.cliente.foto_perfil,
-              role: "CLIENTE" as const,
-            }
+                id: solicitud.cliente.id,
+                name: `${solicitud.cliente.nombre} ${solicitud.cliente.apellido}`.trim(),
+                avatar: solicitud.cliente.foto_perfil,
+                role: "CLIENTE" as const,
+              }
             : {
-              id: solicitud.servicio.profesional.usuario.id,
-              name: `${solicitud.servicio.profesional.usuario.nombre} ${solicitud.servicio.profesional.usuario.apellido}`.trim(),
-              avatar: solicitud.servicio.profesional.usuario.foto_perfil,
-              role: "PROFESIONAL" as const,
-            };
+                id: solicitud.servicio.profesional.usuario.id,
+                name: `${solicitud.servicio.profesional.usuario.nombre} ${solicitud.servicio.profesional.usuario.apellido}`.trim(),
+                avatar: solicitud.servicio.profesional.usuario.foto_perfil,
+                role: "PROFESIONAL" as const,
+              };
 
           const salaDaily = await DailyService.crearSalaEfimera({
             solicitudId: solicitud.id,
@@ -633,7 +653,7 @@ export const initChatSocket = (io: Server) => {
           console.error("Error en call:invite:", error.message);
           callback?.({ error: "Error interno al iniciar videollamada" });
         }
-      }
+      },
     );
 
     /**
@@ -693,14 +713,23 @@ export const initChatSocket = (io: Server) => {
                 },
                 include: {
                   remitente: {
-                    select: { id: true, nombre: true, apellido: true, foto_perfil: true, rol: true },
+                    select: {
+                      id: true,
+                      nombre: true,
+                      apellido: true,
+                      foto_perfil: true,
+                      rol: true,
+                    },
                   },
                 },
               });
               io.to(roomName).emit("nuevo_mensaje", msgRechazo);
               io.to(roomName).emit("mensaje_recibido", msgRechazo);
             } catch (e: any) {
-              console.warn("No se pudo registrar mensaje de llamada rechazada:", e.message);
+              console.warn(
+                "No se pudo registrar mensaje de llamada rechazada:",
+                e.message,
+              );
             }
           }
 
@@ -711,7 +740,7 @@ export const initChatSocket = (io: Server) => {
                   where: { id: llamada.sesion_id },
                   data: { hora_fin: new Date(), duracion_segundos: 0 },
                 })
-                .catch(() => { });
+                .catch(() => {});
             }
 
             llamadasActivas.delete(solicitud_id);
@@ -726,100 +755,113 @@ export const initChatSocket = (io: Server) => {
         } catch (err: any) {
           console.error("Error en call:reject:", err.message);
         }
-      }
+      },
     );
 
     /**
      * Finaliza la videollamada en curso y persiste la duración
      */
-    socket.on("call:end", async (data: { solicitud_id: string; duracion?: number }) => {
-      try {
-        const { solicitud_id, duracion: duracionParam } = data || {};
-        if (!solicitud_id) return;
+    socket.on(
+      "call:end",
+      async (data: { solicitud_id: string; duracion?: number }) => {
+        try {
+          const { solicitud_id, duracion: duracionParam } = data || {};
+          if (!solicitud_id) return;
 
-        const llamada = llamadasActivas.get(solicitud_id);
-        const roomName = `solicitud_${solicitud_id}`;
+          const llamada = llamadasActivas.get(solicitud_id);
+          const roomName = `solicitud_${solicitud_id}`;
 
-        let duracion = duracionParam ?? 0;
-        if (!duracion && llamada) {
-          duracion = Math.max(
-            0,
-            Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000)
-          );
-        }
-
-        if (llamada) {
-          if (llamada.sesion_id) {
-            await prisma.sesionVideollamada
-              .update({
-                where: { id: llamada.sesion_id },
-                data: { hora_fin: new Date(), duracion_segundos: duracion },
-              })
-              .catch(() => { });
+          let duracion = duracionParam ?? 0;
+          if (!duracion && llamada) {
+            duracion = Math.max(
+              0,
+              Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000),
+            );
           }
 
-          llamadasActivas.delete(solicitud_id);
-          socketToSolicitudLlamada.delete(socket.id);
-          if (llamada.caller_socket_id) {
-            socketToSolicitudLlamada.delete(llamada.caller_socket_id);
+          if (llamada) {
+            if (llamada.sesion_id) {
+              await prisma.sesionVideollamada
+                .update({
+                  where: { id: llamada.sesion_id },
+                  data: { hora_fin: new Date(), duracion_segundos: duracion },
+                })
+                .catch(() => {});
+            }
+
+            llamadasActivas.delete(solicitud_id);
+            socketToSolicitudLlamada.delete(socket.id);
+            if (llamada.caller_socket_id) {
+              socketToSolicitudLlamada.delete(llamada.caller_socket_id);
+            }
+            if (llamada.recipient_socket_id) {
+              socketToSolicitudLlamada.delete(llamada.recipient_socket_id);
+            }
           }
-          if (llamada.recipient_socket_id) {
-            socketToSolicitudLlamada.delete(llamada.recipient_socket_id);
-          }
-        }
 
-        io.to(roomName).emit("call:ended", {
-          solicitud_id,
-          duracion,
-          finalizado_por: userId,
-        });
-
-        let resumenTexto = "";
-        if (duracion > 0) {
-          const mins = Math.floor(duracion / 60);
-          const secs = duracion % 60;
-          const tiempoStr = mins > 0 ? `${mins} min ${secs} seg` : `${secs} seg`;
-          resumenTexto = `📞 Videollamada de Diagnóstico finalizada · ${tiempoStr}`;
-        } else if (llamada?.estado === "conectada") {
-          resumenTexto = `📞 Videollamada de Diagnóstico finalizada`;
-        } else {
-          resumenTexto = "📞 Videollamada perdida / cancelada";
-        }
-
-        let endSenderId = userId || llamada?.caller_id;
-        if (!endSenderId) {
-          const sol = await prisma.solicitudTrabajo.findUnique({
-            where: { id: solicitud_id },
-            select: { cliente_id: true },
+          io.to(roomName).emit("call:ended", {
+            solicitud_id,
+            duracion,
+            finalizado_por: userId,
           });
-          endSenderId = sol?.cliente_id;
-        }
 
-        if (resumenTexto && endSenderId) {
-          try {
-            const msgFin = await prisma.mensajeChat.create({
-              data: {
-                solicitud_id,
-                remitente_id: endSenderId,
-                contenido: resumenTexto,
-                leido: false,
-              },
-              include: {
-                remitente: {
-                  select: { id: true, nombre: true, apellido: true, foto_perfil: true, rol: true },
-                },
-              },
-            });
-            io.to(roomName).emit("nuevo_mensaje", msgFin);
-            io.to(roomName).emit("mensaje_recibido", msgFin);
-          } catch (e: any) {
-            console.warn("No se pudo registrar mensaje resumen de llamada:", e.message);
+          let resumenTexto = "";
+          if (duracion > 0) {
+            const mins = Math.floor(duracion / 60);
+            const secs = duracion % 60;
+            const tiempoStr =
+              mins > 0 ? `${mins} min ${secs} seg` : `${secs} seg`;
+            resumenTexto = `📞 Videollamada de Diagnóstico finalizada · ${tiempoStr}`;
+          } else if (llamada?.estado === "conectada") {
+            resumenTexto = `📞 Videollamada de Diagnóstico finalizada`;
+          } else {
+            resumenTexto = "📞 Videollamada perdida / cancelada";
           }
+
+          let endSenderId = userId || llamada?.caller_id;
+          if (!endSenderId) {
+            const sol = await prisma.solicitudTrabajo.findUnique({
+              where: { id: solicitud_id },
+              select: { cliente_id: true },
+            });
+            endSenderId = sol?.cliente_id;
+          }
+
+          if (resumenTexto && endSenderId) {
+            try {
+              const msgFin = await prisma.mensajeChat.create({
+                data: {
+                  solicitud_id,
+                  remitente_id: endSenderId,
+                  contenido: resumenTexto,
+                  leido: false,
+                },
+                include: {
+                  remitente: {
+                    select: {
+                      id: true,
+                      nombre: true,
+                      apellido: true,
+                      foto_perfil: true,
+                      rol: true,
+                    },
+                  },
+                },
+              });
+              io.to(roomName).emit("nuevo_mensaje", msgFin);
+              io.to(roomName).emit("mensaje_recibido", msgFin);
+            } catch (e: any) {
+              console.warn(
+                "No se pudo registrar mensaje resumen de llamada:",
+                e.message,
+              );
+            }
+          }
+        } catch (err: any) {
+          console.error("Error en call:end:", err.message);
         }
-      } catch (err: any) {
-        console.error("Error en call:end:", err.message);
-      }
-    });
+      },
+    );
 
     /**
      * Gestión de desconexión del socket (Teardown automático si estaba en llamada y presencia)
@@ -831,22 +873,32 @@ export const initChatSocket = (io: Server) => {
       if (solicitudId) {
         setTimeout(async () => {
           const llamada = llamadasActivas.get(solicitudId);
-          if (llamada && (llamada.caller_socket_id === socket.id || llamada.recipient_socket_id === socket.id)) {
+          if (
+            llamada &&
+            (llamada.caller_socket_id === socket.id ||
+              llamada.recipient_socket_id === socket.id)
+          ) {
             const roomName = `solicitud_${solicitudId}`;
             try {
               const socketsInRoom = await io.in(roomName).fetchSockets();
-              const sigueEnSala = socketsInRoom.some((s: any) => s.user?.userId === userId);
+              const sigueEnSala = socketsInRoom.some(
+                (s: any) => s.user?.userId === userId,
+              );
               if (sigueEnSala) {
-                console.log(`🔌 [Socket.io] Usuario ${userId} sigue presente con otro socket. Manteniendo llamada.`);
+                console.log(
+                  `🔌 [Socket.io] Usuario ${userId} sigue presente con otro socket. Manteniendo llamada.`,
+                );
                 return;
               }
-            } catch (_) { }
+            } catch (_) {}
 
-            console.log(`🔌 [Socket.io] Usuario ${userId} ausente tras tolerancia. Finalizando llamada.`);
+            console.log(
+              `🔌 [Socket.io] Usuario ${userId} ausente tras tolerancia. Finalizando llamada.`,
+            );
             llamada.estado = "finalizada";
             const duracion = Math.max(
               0,
-              Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000)
+              Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000),
             );
 
             if (llamada.sesion_id) {
@@ -855,7 +907,7 @@ export const initChatSocket = (io: Server) => {
                   where: { id: llamada.sesion_id },
                   data: { hora_fin: new Date(), duracion_segundos: duracion },
                 })
-                .catch(() => { });
+                .catch(() => {});
             }
 
             io.to(roomName).emit("call:ended", {
@@ -869,7 +921,8 @@ export const initChatSocket = (io: Server) => {
               try {
                 const mins = Math.floor(duracion / 60);
                 const secs = duracion % 60;
-                const durTxt = mins > 0 ? `${mins} min ${secs} seg` : `${secs} seg`;
+                const durTxt =
+                  mins > 0 ? `${mins} min ${secs} seg` : `${secs} seg`;
                 const msgDesc = await prisma.mensajeChat.create({
                   data: {
                     solicitud_id: solicitudId,
@@ -879,13 +932,19 @@ export const initChatSocket = (io: Server) => {
                   },
                   include: {
                     remitente: {
-                      select: { id: true, nombre: true, apellido: true, foto_perfil: true, rol: true },
+                      select: {
+                        id: true,
+                        nombre: true,
+                        apellido: true,
+                        foto_perfil: true,
+                        rol: true,
+                      },
                     },
                   },
                 });
                 io.to(roomName).emit("nuevo_mensaje", msgDesc);
                 io.to(roomName).emit("mensaje_recibido", msgDesc);
-              } catch (_) { }
+              } catch (_) {}
             }
 
             llamadasActivas.delete(solicitudId);

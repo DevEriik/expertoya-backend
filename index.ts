@@ -72,6 +72,9 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/reportes", reportesRoutes);
 app.use("/api/notificaciones", notificationRoutes);
 app.use("/api/usuarios", usuarioRoutes);
+
+app.use("/api/payments/webhook", webhookRoutes);
+
 app.use("/api/payments", paymentRoutes);
 app.use("/api/admin/payments", adminPaymentRoutes);
 app.use("/api/webhooks/mercadopago", webhookRoutes);

@@ -63,7 +63,7 @@ Movimientos generados:
 - **`PagoEscrow`** (`pago_escrow`): estado del pago de una solicitud.
   Campos clave: `external_reference`, `transaccion_mp_id`, `mp_preference_id`,
   `estado_pago`, `monto_total`, `comision_plataforma`, `fee_mp`,
-  `monto_neto_profesional`, `expiracion_preferencia`.
+  `monto_neto_profesional`, `expiracion_preferencia`, `comprobante_url`.
 - **`Payout`** (`payout`): pago al profesional. Único por `pago_id` y por
   `solicitud_id`.
 - **`MovimientoPago`** (`movimiento_pago`): asientos del ledger.
@@ -88,6 +88,9 @@ Enums: `EstadoPago`, `EstadoPayout`, `MetodoPayout`, `TipoMovimientoPago`,
    (`processPaymentWebhook`). Se valida moneda ARS, `collector_id`, montos y
    `external_reference`. Si está aprobado, el pago pasa a `RETENIDO` y se
    registran los movimientos del ledger.
+   En ese momento se **genera el comprobante PDF**, se sube a Supabase Storage,
+   se guarda `comprobante_url` y se emite **`pago:retenido`** por Socket.io a
+   `usuario_<id>` y `user:<id>` del cliente y del profesional.
 4. **Confirmaciones**: cliente y profesional confirman la finalización
    (`POST /api/payments/solicitud/:id/confirm`). Al estar **ambas**, se libera
    automáticamente.
@@ -113,6 +116,22 @@ Enums: `EstadoPago`, `EstadoPayout`, `MetodoPayout`, `TipoMovimientoPago`,
 | `POST` | `/api/payments/preferences` | `CLIENTE` |
 | `GET` | `/api/payments/solicitud/:solicitudId` | `CLIENTE`, `PROFESIONAL`, `ADMIN` |
 | `POST` | `/api/payments/solicitud/:solicitudId/confirm` | `CLIENTE`, `PROFESIONAL` |
+| `GET` | `/api/payments/:solicitudId/comprobante` | `CLIENTE`, `PROFESIONAL`, `ADMIN` |
+
+### Aliases compatibles con el contrato de la issue DAN-22
+
+| Método | Ruta | Equivalente |
+|---|---|---|
+| `POST` | `/api/payments/create-preference` | `/api/payments/preferences` |
+| `POST` | `/api/payments/:solicitudId/confirmar-finalizacion` | `/api/payments/solicitud/:solicitudId/confirm` |
+| `POST` | `/api/payments/webhook` | `/api/webhooks/mercadopago` |
+
+Los aliases conviven con las rutas originales: no rompen a los clientes que ya
+las usaban.
+
+`GET /api/payments/:solicitudId/comprobante` devuelve
+`{ comprobante_url, pago_id, estado_pago }` y solo responde cuando el pago ya
+fue aprobado y el PDF fue generado.
 
 ### Administración (JWT ADMIN)
 
@@ -168,7 +187,33 @@ En producción `env.ts` exige `MP_WEBHOOK_SECRET`, `PAYOUT_MODE != SIMULADO` y
 
 ---
 
-## 8. Idempotencia
+## 8. Tiempo real (Socket.io)
+
+Al aprobarse el pago se emite el evento **`pago:retenido`** con:
+
+```json
+{
+  "solicitudId": "…",
+  "pagoId": "…",
+  "estado": "RETENIDO",
+  "montoTotal": "10000.00",
+  "moneda": "ARS",
+  "comprobanteUrl": "https://…"
+}
+```
+
+Se envía a **dos salas por usuario** para compatibilidad:
+
+- `usuario_<id>`: la sala que ya usaba el chat.
+- `user:<id>`: la sala indicada por la issue DAN-22.
+
+Al conectarse, cada socket se une a ambas salas. Si Socket.io no está
+inicializado (por ejemplo, en un script de consola), el evento se omite y se
+registra un warning, sin afectar el pago.
+
+---
+
+## 9. Idempotencia
 
 | Nivel | Mecanismo |
 |---|---|
@@ -179,7 +224,7 @@ En producción `env.ts` exige `MP_WEBHOOK_SECRET`, `PAYOUT_MODE != SIMULADO` y
 
 ---
 
-## 9. Operación
+## 10. Operación
 
 ```bash
 # Verificación del flujo sin Mercado Pago
@@ -198,7 +243,7 @@ npm run payment:reconcile
 
 ---
 
-## 10. Limitaciones del Trabajo Práctico
+## 11. Limitaciones del Trabajo Práctico
 
 Quedan **fuera de alcance**:
 
@@ -219,14 +264,17 @@ Pendientes conocidos:
   contra Mercado Pago no puede ejecutarse todavía.
 - **Disputas**: el modelo `Disputa` existe y bloquea confirmaciones/liberaciones
   si hay una `ABIERTA`, pero no hay endpoint para crearlas ni resolverlas.
-- **Comprobante PDF**: el modelo guarda `comprobante_numero`, `comprobante_hash`
-  y `comprobante_generado_en`, y la API expone `comprobante_disponible`, pero la
-  generación del PDF no está implementada.
+- **Comprobante PDF**: el modelo guarda `comprobante_numero`, `comprobante_hash`,
+  `comprobante_url` y `comprobante_generado_en`, y la API expone
+  `comprobante_disponible` y `comprobante_url`. La emisión del PDF se implementó
+  con `pdfkit` y se sube a Supabase Storage.
+- **Emails**: la issue menciona Resend; el proyecto usa el `EmailService`
+  existente (nodemailer/Gmail). Funcionalmente equivalente, sin proveedor nuevo.
 - **Tests automatizados**: `payment:smoke` es manual y requiere base de datos.
 
 ---
 
-## 11. Incidente de sincronización de base (2026-11-04)
+## 12. Incidente de sincronización de base (2026-11-04)
 
 La base de Supabase había sido restaurada desde un dump anterior a la
 implementación de pagos: faltaban `payout`, `movimiento_pago`, `webhook_event`,
