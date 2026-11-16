@@ -20,6 +20,7 @@ import adminPaymentRoutes from "./src/routes/admin-payment.routes";
 import webhookRoutes from "./src/routes/webhook.routes";
 import solicitudRoutes from "./src/routes/solicitud.routes";
 import reportesRoutes from "./src/routes/reportes.routes";
+import reviewRoutes from "./src/routes/review.routes";
 import { iniciarCronNotificaciones } from "./src/jobs/notification.job";
 import { iniciarCronSolicitudes } from "./src/jobs/solicitudes.job";
 
@@ -72,6 +73,7 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/reportes", reportesRoutes);
 app.use("/api/notificaciones", notificationRoutes);
 app.use("/api/usuarios", usuarioRoutes);
+app.use("/api/clientes", usuarioRoutes);
 
 app.use("/api/payments/webhook", webhookRoutes);
 
@@ -80,6 +82,7 @@ app.use("/api/admin/payments", adminPaymentRoutes);
 app.use("/api/webhooks/mercadopago", webhookRoutes);
 
 app.use("/api/solicitudes", solicitudRoutes);
+app.use("/api/reviews", reviewRoutes);
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("Error capturado por Express:", err.message);
