@@ -40,14 +40,17 @@ export const paymentController = {
         return;
       }
 
-      const { solicitud_id } = req.body ?? {};
-      if (!solicitud_id || typeof solicitud_id !== "string") {
-        res.status(400).json({ error: "Se requiere 'solicitud_id'" });
+      const { solicitud_id, solicitudId } = req.body ?? {};
+      const solicitudIdFinal = solicitud_id ?? solicitudId;
+      if (!solicitudIdFinal || typeof solicitudIdFinal !== "string") {
+        res
+          .status(400)
+          .json({ error: "Se requiere 'solicitud_id' (o 'solicitudId')" });
         return;
       }
 
       const resultado = await paymentService.createPaymentPreference(
-        solicitud_id,
+        solicitudIdFinal,
         clienteId,
       );
 
@@ -108,6 +111,34 @@ export const paymentController = {
       res.json({ ok: true, ...resultado });
     } catch (error: any) {
       manejarError(res, error, "confirmCompletion");
+    }
+  },
+
+  getComprobante: async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.userId;
+      const rol = req.user?.rol;
+      const { solicitudId } = req.params;
+
+      if (!userId || !rol) {
+        res.status(401).json({ error: "No autenticado" });
+        return;
+      }
+
+      if (!solicitudId) {
+        res.status(400).json({ error: "Se requiere el ID de la solicitud" });
+        return;
+      }
+
+      const comprobante = await paymentService.getComprobante(
+        solicitudId,
+        userId,
+        rol,
+      );
+
+      res.json({ ok: true, ...comprobante });
+    } catch (error: any) {
+      manejarError(res, error, "getComprobante");
     }
   },
 };

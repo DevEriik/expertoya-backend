@@ -8,6 +8,7 @@ import {
 import { prisma } from "../src/config/prisma";
 import { env } from "../src/config/env";
 import { paymentService } from "../src/services/payment.service";
+import { receiptService } from "../src/services/receipt.service";
 
 /**
  * Smoke test del flujo de pagos SIN Mercado Pago real.
@@ -216,6 +217,31 @@ async function main(): Promise<void> {
     where: { pago_id: escenario.pagoId },
   });
   assert(cantidadPayouts === 1, "no se duplicó el payout");
+
+  console.log("\n6) Comprobante PDF");
+  const pdf = await receiptService.construirComprobantePdf({
+    pagoId: escenario.pagoId,
+    solicitudId: escenario.solicitudId,
+    mpPaymentId: "123456789",
+    estadoPago: "RETENIDO",
+    servicioTitulo: "Servicio smoke",
+    moneda: "ARS",
+    montoTotal: "10000.00",
+    comisionPlataforma: "1000.00",
+    comisionPorcentaje: "10.00",
+    feeMp: "0.00",
+    netoProfesional: "9000.00",
+    fechaEmision: new Date(),
+    clienteNombre: "Smoke Cliente",
+    clienteEmail: "smoke.cliente@example.com",
+    profesionalNombre: "Smoke Profesional",
+    profesionalEmail: "smoke.pro@example.com",
+  });
+  assert(
+    pdf.subarray(0, 4).toString() === "%PDF",
+    "el comprobante tiene cabecera %PDF",
+  );
+  assert(pdf.length > 1000, `el comprobante tiene contenido (${pdf.length} bytes)`);
 
   console.log("\n✅ Smoke test completado con éxito");
 }

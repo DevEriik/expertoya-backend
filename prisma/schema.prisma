@@ -304,6 +304,7 @@ model PagoEscrow {
   mp_refund_id            String?
   comprobante_numero      String?         @unique
   comprobante_hash        String?
+  comprobante_url         String?
   comprobante_generado_en DateTime?
   metadata                Json?
   creado_en               DateTime        @default(now())
