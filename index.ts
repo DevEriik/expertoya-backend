@@ -21,6 +21,7 @@ import webhookRoutes from "./src/routes/webhook.routes";
 import solicitudRoutes from "./src/routes/solicitud.routes";
 import reportesRoutes from "./src/routes/reportes.routes";
 import reviewRoutes from "./src/routes/review.routes";
+import paymentRedirectRoutes from "./src/routes/payment-redirect.routes";
 import { iniciarCronNotificaciones } from "./src/jobs/notification.job";
 import { iniciarCronSolicitudes } from "./src/jobs/solicitudes.job";
 
@@ -83,6 +84,9 @@ app.use("/api/webhooks/mercadopago", webhookRoutes);
 
 app.use("/api/solicitudes", solicitudRoutes);
 app.use("/api/reviews", reviewRoutes);
+
+// Puente de retorno de Mercado Pago Checkout Pro (back_urls)
+app.use("/pago", paymentRedirectRoutes);
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("Error capturado por Express:", err.message);

@@ -83,6 +83,10 @@ Enums: `EstadoPago`, `EstadoPayout`, `MetodoPayout`, `TipoMovimientoPago`,
    reutiliza; si expiró, la cancela y crea otra. Devuelve `init_point` /
    `sandbox_init_point`.
 2. **Checkout**: el cliente paga en Mercado Pago (fuera de este backend).
+   Al terminar, Mercado Pago redirige el navegador a las `back_urls`
+   (`/pago/success`, `/pago/failure` o `/pago/pending`), donde el backend
+   responde con un HTML que abre la app por deep link
+   (`expertoyamovil://pago/<estado>`). Ver “Puente de retorno”.
 3. **Webhook** (`POST /api/webhooks/mercadopago`): se valida la firma HMAC,
    se registra el `WebhookEvent` y se consulta el pago en la API de MP
    (`processPaymentWebhook`). Se valida moneda ARS, `collector_id`, montos y
@@ -133,6 +137,39 @@ las usaban.
 `{ comprobante_url, pago_id, estado_pago }` y solo responde cuando el pago ya
 fue aprobado y el PDF fue generado.
 
+### Puente de retorno de Mercado Pago (público)
+
+Mercado Pago no puede abrir un deep link directamente: redirige el navegador a
+las `back_urls` HTTPS. Por eso el backend expone un puente que recibe el retorno
+y devuelve un HTML que abre la app.
+
+| Método | Ruta | Seguridad |
+|---|---|---|
+| `GET` | `/pago/:status` | Pública; `status` debe ser `success`, `failure` o `pending` |
+
+- El estado se decide **por el parámetro de ruta**, nunca por `req.query.status`.
+  Cualquier otro valor responde `400` con “Estado de retorno inválido”.
+- Query params de MP: `payment_id`, `status` (se reenvía como `mp_status`),
+  `external_reference` (formato `<uuid-solicitud>-<timestamp>`) y
+  `merchant_order_id` (se recibe, pero no se reenvía).
+- Extrae el UUID de la solicitud desde `external_reference`; si no hay match,
+  `solicitudId` queda vacío.
+- Deep link resultante (esquema fijo, sin parámetro `status`):
+
+```text
+expertoyamovil://pago/success?solicitudId=<uuid>&solicitud_id=<uuid>&external_reference=<ref>&payment_id=<id>&mp_status=approved
+expertoyamovil://pago/failure?solicitudId=<uuid>&solicitud_id=<uuid>&external_reference=<ref>&payment_id=<id>&mp_status=rejected
+expertoyamovil://pago/pending?solicitudId=<uuid>&solicitud_id=<uuid>&external_reference=<ref>&payment_id=<id>&mp_status=in_process
+```
+
+- La respuesta es `text/html` con `Cache-Control: no-store`, redirección
+  automática (`window.location.replace`) y un botón de respaldo
+  “Volver a la aplicación”.
+- Todos los valores se escapan para HTML y el deep link se serializa de forma
+  segura dentro del `<script>` (evita XSS reflejado).
+- El retorno **no confirma el pago**: la app debe consultar
+  `GET /api/payments/solicitud/:solicitudId` (o esperar `pago:retenido`).
+
 ### Administración (JWT ADMIN)
 
 | Método | Ruta | Body |
@@ -151,6 +188,7 @@ fue aprobado y el PDF fue generado.
 | Método | Ruta | Seguridad |
 |---|---|---|
 | `POST` | `/api/webhooks/mercadopago` | Firma HMAC (`x-signature`) |
+| `GET` | `/pago/:status` | Pública (puente de retorno del checkout) |
 
 ---
 
@@ -171,6 +209,12 @@ ALLOW_PAYMENT_SIMULATION=true
 
 En producción `env.ts` exige `MP_WEBHOOK_SECRET`, `PAYOUT_MODE != SIMULADO` y
 `ALLOW_PAYMENT_SIMULATION=false`.
+
+`BACKEND_PUBLIC_URL` se usa para el `notification_url` (webhook) y
+`APP_PUBLIC_URL` para las `back_urls` (`<APP_PUBLIC_URL>/pago/*`). Para probar el
+retorno desde un teléfono, ambas deben apuntar al **mismo dominio HTTPS estable
+del túnel** (ngrok/cloudflared), **sin barra final**. Si tienen barra final, las
+URLs quedan con `//pago/...`.
 
 ---
 
