@@ -94,8 +94,9 @@ enum CuentaLedger {
 
 enum EstadoDisputa {
   ABIERTA
-  RESUELTA_CLIENTE
-  RESUELTA_PROFESIONAL
+  RESUELTA_CLIENTE          // Reembolso total al cliente
+  RESUELTA_REEMBOLSO_PARCIAL // Reembolso parcial al cliente
+  RESUELTA_PROFESIONAL      // Liberación de fondos al profesional
 }
 
 enum EstadoAuditoria {
@@ -135,7 +136,9 @@ model Usuario {
   denuncias_emitidas    ReporteDenuncia[]        @relation("DenunciasEmitidas")
   denuncias_recibidas   ReporteDenuncia[]        @relation("DenunciasRecibidas")
   reportes_revisados    ReporteDenuncia[]        @relation("AdminReportesRevisados")
-
+  disputas_como_cliente     Disputa[] @relation("DisputasCliente")
+  disputas_como_profesional Disputa[] @relation("DisputasProfesional")
+  disputas_resueltas        Disputa[] @relation("AdminDisputasResueltas")
   @@map("usuario")
 }
 
@@ -419,15 +422,29 @@ model MensajeChat {
 }
 
 model Disputa {
-  id               String        @id @default(uuid())
-  solicitud_id     String
-  motivo           String
-  estado           EstadoDisputa @default(ABIERTA)
-  resolucion_admin String?
-  abierta_en       DateTime      @default(now())
+  id                  String        @id @default(uuid())
+  solicitud_id        String
+  cliente_id          String
+  profesional_id      String
+  pago_id             String?
+  motivo              String
+  descripcion         String?       @db.Text
+  evidencia_urls      Json?         // Por si el cliente adjunta fotos al reclamo
+  estado              EstadoDisputa @default(ABIERTA)
+  monto_retenido      Decimal?      @db.Decimal(12, 2)
+  monto_reembolsado   Decimal?      @db.Decimal(12, 2)
+  resolucion_admin    String?       @db.Text
+  resuelto_por        String?
+  abierta_en          DateTime      @default(now())
+  resuelta_en         DateTime?
 
-  solicitud SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+  solicitud     SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+  cliente       Usuario          @relation("DisputasCliente", fields: [cliente_id], references: [id], onDelete: Cascade)
+  profesional   Usuario          @relation("DisputasProfesional", fields: [profesional_id], references: [id], onDelete: Cascade)
+  admin_revisor Usuario?         @relation("AdminDisputasResueltas", fields: [resuelto_por], references: [id], onDelete: SetNull)
 
+  @@index([solicitud_id])
+  @@index([estado])
   @@map("disputa")
 }
 

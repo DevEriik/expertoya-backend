@@ -22,6 +22,7 @@ import solicitudRoutes from "./src/routes/solicitud.routes";
 import reportesRoutes from "./src/routes/reportes.routes";
 import { iniciarCronNotificaciones } from "./src/jobs/notification.job";
 import { iniciarCronSolicitudes } from "./src/jobs/solicitudes.job";
+import disputasRouter from "./src/routes/disputas.routes";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -77,6 +78,7 @@ app.use("/api/admin/payments", adminPaymentRoutes);
 app.use("/api/webhooks/mercadopago", webhookRoutes);
 
 app.use("/api/solicitudes", solicitudRoutes);
+app.use("/api/disputas", disputasRouter);
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("Error capturado por Express:", err.message);
