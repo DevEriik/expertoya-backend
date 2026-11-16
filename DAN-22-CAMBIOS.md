@@ -311,6 +311,44 @@ npx prisma migrate status
 
 ---
 
+## Paso 9 — Puente de retorno de Mercado Pago (`/pago/:status`)
+
+**Problema:** las `back_urls` apuntaban a
+`${APP_PUBLIC_URL}/pago/success|failure|pending`, pero Express no tenía esa
+ruta. El usuario terminaba en `Cannot GET /pago/success` y la app no se abría.
+
+**Archivo nuevo:** `src/routes/payment-redirect.routes.ts`
+
+- `GET /:status` valida estrictamente `success | failure | pending`; cualquier
+  otro valor responde `400` (“Estado de retorno inválido”).
+- Toma de la query `payment_id`, `external_reference`, `status` (se reenvía como
+  `mp_status`) y `merchant_order_id` (se recibe, no se reenvía).
+- Extrae el UUID de la solicitud desde `external_reference` con regex.
+- Arma el deep link `expertoyamovil://pago/<status>?...` **sin** el parámetro
+  `status`, para no chocar con la ruta `/pago/[status]` del mobile.
+- Responde HTML escapado (incluido el deep link dentro del `<script>`), con
+  `Cache-Control: no-store`, redirección automática y botón
+  “Volver a la aplicación”.
+
+**index.ts:** se monta `app.use("/pago", paymentRedirectRoutes)` antes del
+manejador de errores.
+
+### 9.1 Pruebas ejecutadas
+
+| Caso | Resultado |
+|---|---|
+| `/pago/success?...&status=approved` | `200` HTML, deep link a `success`, `mp_status=approved` |
+| `/pago/failure?...&status=rejected` | `200` HTML, deep link a `failure`, `mp_status=rejected` |
+| `/pago/pending?...&status=in_process` | `200` HTML, deep link a `pending`, `mp_status=in_process` |
+| `/pago/invalido` | `400` “Estado de retorno inválido” |
+| `/pago/success` sin params | `200`, deep link base sin romperse |
+| `external_reference` sin UUID | `200`, `solicitudId` vacío |
+| XSS en `payment_id` / `external_reference` | valores escapados, sin `<script>` inyectado |
+| Headers | `Content-Type: text/html; charset=utf-8`, `Cache-Control: no-store` |
+| HTML | incluye “Volver a la aplicación” |
+
+---
+
 ## Estado final del checklist
 
 | Requisito | Estado |
@@ -319,6 +357,7 @@ npx prisma migrate status
 | “Marcar como finalizado” por ambas partes | ✅ |
 | Retención y comisión automática | ✅ |
 | Comprobante digital descargable | ✅ PDF + Supabase + endpoint |
+| Retorno del checkout a la app | ✅ Puente `/pago/:status` + deep link |
 | Protección antifraude delegada | ✅ Checkout Pro + firma HMAC |
 
 ---
@@ -338,10 +377,10 @@ npx prisma migrate status
    los valores nuevos al final. Prisma lo detecta como diferencia de orden, pero
    es cosmético: no afecta el funcionamiento. No se reordenaron para evitar
    romper dependencias.
-5. **Tablas de otras ramas**: la base tiene estructuras (`bloqueo_usuario`,
-   `reporte_denuncia`, etc.) que este schema no declara. Antes de correr
-   `prisma migrate dev` hay que sincronizar el schema con todas las ramas, o se
-   corre riesgo de que Prisma proponga borrarlas.
+5. **Diferencias de schema**: tras mergear `developer`, el schema ya declara las
+   tablas de bloqueos y denuncias. Quedan diferencias con la base (columnas
+   extra en `disputa` y `profesional.experiencia`, y orden de algunos enums).
+   Antes de correr `prisma migrate dev` hay que conciliar el schema con la base.
 
 ---
 
@@ -353,12 +392,13 @@ npx prisma migrate status
 | `prisma/migrations/20261115184737_…/migration.sql` | Migración de la columna |
 | `src/services/storage.service.ts` | `subirBuffer` + refactor |
 | `src/services/receipt.service.ts` | **Nuevo**: PDF con pdfkit |
-| `src/sockets/socket.registry.ts` | **Nuevo**: registro global de io |
+| `src/sockets/io.ts` | Registro global de io + `emitToRoom` |
 | `src/sockets/chat.socket.ts` | Join a la sala `user:<id>` |
 | `src/services/payment.service.ts` | Comprobante, socket, `getComprobante`, URL en detalles |
 | `src/controllers/payment.controller.ts` | Handler de comprobante y payload flexible |
 | `src/routes/payment.routes.ts` | Descarga + aliases |
-| `index.ts` | `setIO` y alias del webhook |
+| `src/routes/payment-redirect.routes.ts` | **Nuevo**: puente `/pago/:status` y deep link |
+| `index.ts` | Alias del webhook y montaje de `/pago` |
 | `docker-compose.yml` | Variables `MP_*` y de negocio |
 | `scripts/payment-smoke.ts` | Verificación del PDF |
 | `PAYMENTS.md` | Documentación actualizada |
