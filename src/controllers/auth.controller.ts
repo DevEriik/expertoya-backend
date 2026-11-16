@@ -7,6 +7,7 @@ import {
   sendWelcomeEmail,
   sendPasswordResetEmail,
 } from "../services/email.service";
+import { subirArchivo } from "../services/storage.service";
 
 const esMayorDeEdad = (fechaNacimientotxt: string): boolean => {
   const fechaNac = new Date(fechaNacimientotxt);
@@ -220,9 +221,21 @@ export const updateProfile = async (
 
     const { nombre, apellido, telefono, foto_perfil } = req.body;
 
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    const file = req.file || files?.["foto_perfil"]?.[0] || files?.["foto"]?.[0];
+    let finalFotoPerfil = foto_perfil;
+    if (file) {
+      finalFotoPerfil = await subirArchivo(file, "avatares");
+    }
+
     const updatedUser = await prisma.usuario.update({
       where: { id: userId },
-      data: { nombre, apellido, telefono, foto_perfil },
+      data: {
+        ...(nombre !== undefined && { nombre }),
+        ...(apellido !== undefined && { apellido }),
+        ...(telefono !== undefined && { telefono }),
+        ...(finalFotoPerfil !== undefined && { foto_perfil: finalFotoPerfil }),
+      },
     });
 
     res.json(updatedUser);

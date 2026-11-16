@@ -471,7 +471,7 @@ export const getReporteDenunciaDetalle = async (
               select: {
                 estado_validado: true,
                 estado_auditoria: true,
-                calificacion_promedio: true,
+                calificacionPromedio: true,
               },
             },
           },

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import multer from "multer";
 import {
     register,
     login,
@@ -13,15 +14,26 @@ import {
     AuthRequest,
 } from "../middlewares/auth.middleware";
 
-
 const router = Router();
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+});
 
 router.post("/register", register);
 router.post("/login", login);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
 router.post("/logout", verifyToken, logout);
-router.put("/profile", verifyToken, updateProfile);
+router.put(
+    "/profile",
+    verifyToken,
+    upload.fields([
+        { name: "foto_perfil", maxCount: 1 },
+        { name: "foto", maxCount: 1 },
+    ]),
+    updateProfile
+);
 
 import { prisma } from "../config/prisma";
 

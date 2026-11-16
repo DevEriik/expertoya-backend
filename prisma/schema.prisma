@@ -128,7 +128,7 @@ model Usuario {
   historial_diagnostico HistorialDiagnosticoIA[]
   solicitudes           SolicitudTrabajo[]       @relation("ClienteSolicitud")
   mensajes_enviados     MensajeChat[]            @relation("RemitenteMensaje")
-  resenias_dadas        Resenia[]                @relation("ReseniaCliente")
+  resenasDadas          Resena[]                 @relation("ResenaCliente")
   profesionales_validados Profesional[]          @relation("AdminValidador")
   sesiones              Sesion[]
   bloqueos_realizados   BloqueoUsuario[]         @relation("BloqueosRealizados")
@@ -164,6 +164,7 @@ model Profesional {
   matricula_documento   String?
   fecha_validacion      DateTime?
   descripcion_perfil    String?
+  experiencia           Int?            @default(0)
   dni_frente            String?
   dni_dorso             String?
   selfie_biometrica     String?
@@ -171,7 +172,8 @@ model Profesional {
   certificado_no_deudor String?
   cuit                  String?
   constancia_afip       String?
-  calificacion_promedio Float           @default(0)
+  calificacionPromedio  Float           @default(0) @map("calificacion_promedio")
+  totalResenas          Int             @default(0) @map("total_resenas")
   ubicacion_geografica  String?
   latitud               Float?
   longitud              Float?
@@ -187,8 +189,8 @@ model Profesional {
 
   disponibilidades      DisponibilidadProfesional[]
   servicios_publicados  ServicioPublicado[]
-  resenias_recibidas    Resenia[] @relation("ReseniaProfesional")
-  oficios               Oficio[]  @relation("ProfesionalOficios")
+  resenasRecibidas      Resena[]        @relation("ResenaProfesional")
+  oficios               Oficio[]        @relation("ProfesionalOficios")
   payouts               Payout[]
 
   @@map("profesional")
@@ -271,7 +273,7 @@ model SolicitudTrabajo {
   sesiones_video     SesionVideollamada[]
   disputas           Disputa[]
   mensajes           MensajeChat[]
-  resenias           Resenia[]
+  resena             Resena?
   bloqueos           BloqueoUsuario[]
   reportes           ReporteDenuncia[]
 
@@ -305,6 +307,7 @@ model PagoEscrow {
   mp_refund_id            String?
   comprobante_numero      String?         @unique
   comprobante_hash        String?
+  comprobante_url         String?
   comprobante_generado_en DateTime?
   metadata                Json?
   creado_en               DateTime        @default(now())
@@ -389,20 +392,23 @@ model SesionVideollamada {
   @@map("sesion_videollamada")
 }
 
-model Resenia {
-  id                    String   @id @default(uuid())
-  solicitud_id          String
-  cliente_id            String
-  profesional_id        String
-  calificacion          Int
-  comentario            String?
-  respuesta_profesional String?
-  fecha_creacion        DateTime @default(now())
+model Resena {
+  id                   String    @id @default(uuid())
+  solicitudId          String    @unique @map("solicitud_id")
+  clienteId            String    @map("cliente_id")
+  profesionalId        String    @map("profesional_id")
+  calificacion         Int
+  comentario           String?   @db.Text
+  fotosUrls            String[]  @default([]) @map("fotos_urls")
+  respuestaProfesional String?   @map("respuesta_profesional") @db.Text
+  fechaRespuesta       DateTime? @map("fecha_respuesta")
+  createdAt            DateTime  @default(now()) @map("fecha_creacion")
 
-  solicitud   SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
-  cliente     Usuario          @relation("ReseniaCliente", fields: [cliente_id], references: [id], onDelete: Cascade)
-  profesional Profesional      @relation("ReseniaProfesional", fields: [profesional_id], references: [id], onDelete: Cascade)
+  solicitud   SolicitudTrabajo @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  cliente     Usuario          @relation("ResenaCliente", fields: [clienteId], references: [id], onDelete: Cascade)
+  profesional Profesional      @relation("ResenaProfesional", fields: [profesionalId], references: [id], onDelete: Cascade)
 
+  @@index([profesionalId, createdAt])
   @@map("resenia")
 }
 

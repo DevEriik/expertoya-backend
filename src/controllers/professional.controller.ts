@@ -33,9 +33,11 @@ export const getProfile = async (
             estado_validado: true,
             estado_auditoria: true,
             motivo_rechazo: true,
-            calificacion_promedio: true,
+            calificacionPromedio: true,
+            totalResenas: true,
             disponible: true,
             matricula_documento: true,
+            experiencia: true,
             oficios: {
               select: {
                 id: true,
@@ -85,10 +87,16 @@ export const getProfile = async (
       estado_validado: usuarioConPerfil.profesional?.estado_validado ?? false,
       estado_auditoria: usuarioConPerfil.profesional?.estado_auditoria || null,
       motivo_rechazo: usuarioConPerfil.profesional?.motivo_rechazo || null,
-      tiene_solicitud: Boolean(usuarioConPerfil.profesional),
+      tiene_solicitud: Boolean((usuarioConPerfil as any).profesional),
       calificacion_promedio:
-        usuarioConPerfil.profesional?.calificacion_promedio ?? 0,
+        (usuarioConPerfil as any).profesional?.calificacionPromedio ?? 0,
+      calificacionPromedio:
+        (usuarioConPerfil as any).profesional?.calificacionPromedio ?? 0,
+      totalResenas:
+        (usuarioConPerfil as any).profesional?.totalResenas ?? 0,
       disponible: (usuarioConPerfil.profesional as any)?.disponible ?? true,
+      experiencia: usuarioConPerfil.profesional?.experiencia ?? null,
+      anios_experiencia: usuarioConPerfil.profesional?.experiencia ?? null,
       matricula_documento:
         usuarioConPerfil.profesional?.matricula_documento || null,
       oficios: usuarioConPerfil.profesional?.oficios || [],
@@ -115,6 +123,12 @@ export const updateProfile = async (
       return;
     }
 
+    const userRole = req.user?.rol;
+    if (userRole === "CLIENTE") {
+      res.status(403).json({ error: "Las cuentas de cliente deben actualizar su perfil desde /api/auth/profile." });
+      return;
+    }
+
     const {
       nombre,
       apellido,
@@ -126,7 +140,18 @@ export const updateProfile = async (
       longitud,
       disponible,
       oficios_ids,
+      experiencia,
+      anios_experiencia,
     } = req.body;
+
+    let parsedExperiencia: number | undefined = undefined;
+    const rawExp = experiencia !== undefined ? experiencia : anios_experiencia;
+    if (rawExp !== undefined && rawExp !== null && String(rawExp).trim() !== "") {
+      const num = parseInt(String(rawExp).trim(), 10);
+      if (!isNaN(num)) {
+        parsedExperiencia = num;
+      }
+    }
 
     const files = req.files as
       | { [fieldname: string]: Express.Multer.File[] }
@@ -141,6 +166,12 @@ export const updateProfile = async (
         files.matricula_documento.map((f) => subirArchivo(f)),
       );
       matriculaDocUrl = urls.join(",");
+    }
+
+    let fotoPerfilUrl = foto_perfil;
+    const fotoFile = files?.foto_perfil?.[0] || files?.foto?.[0];
+    if (fotoFile) {
+      fotoPerfilUrl = await subirArchivo(fotoFile, "avatares");
     }
 
     const tradeSlugToId: Record<string, number> = {
@@ -235,7 +266,7 @@ export const updateProfile = async (
         ...(nombre !== undefined && { nombre }),
         ...(apellido !== undefined && { apellido }),
         ...(telefono !== undefined && { telefono }),
-        ...(foto_perfil !== undefined && { foto_perfil }),
+        ...(fotoPerfilUrl !== undefined && { foto_perfil: fotoPerfilUrl }),
         profesional: {
           update: {
             ...(descripcion_perfil !== undefined && { descripcion_perfil }),
@@ -247,6 +278,7 @@ export const updateProfile = async (
               longitud: longitud === null ? null : Number(longitud),
             }),
             ...(disponible !== undefined && { disponible: Boolean(disponible) }),
+            ...(parsedExperiencia !== undefined && { experiencia: parsedExperiencia }),
             ...(matriculaDocUrl !== undefined && {
               matricula_documento: matriculaDocUrl,
             }),
@@ -312,6 +344,8 @@ export const updateProfile = async (
           usuarioActualizado.profesional?.ubicacion_geografica,
         estado_validado: usuarioActualizado.profesional?.estado_validado,
         disponible: (usuarioActualizado.profesional as any)?.disponible ?? true,
+        experiencia: usuarioActualizado.profesional?.experiencia ?? null,
+        anios_experiencia: usuarioActualizado.profesional?.experiencia ?? null,
         matricula_documento:
           usuarioActualizado.profesional?.matricula_documento,
         oficios: usuarioActualizado.profesional?.oficios || [],
@@ -342,6 +376,12 @@ export const submitOnboarding = async (
     const userId = req.user?.userId;
     if (!userId) {
       res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const userRole = req.user?.rol;
+    if (userRole === "CLIENTE") {
+      res.status(403).json({ error: "Las cuentas de cliente deben actualizar su perfil desde /api/auth/profile." });
       return;
     }
 
@@ -561,7 +601,7 @@ export const getPublicProfessionals = async (
           },
         },
       },
-      orderBy: { calificacion_promedio: "desc" },
+      orderBy: { calificacionPromedio: "desc" },
     });
 
     res.status(200).json(profesionales);
@@ -578,6 +618,12 @@ export const getAvailability = async (req: AuthRequest, res: Response): Promise<
     const userId = req.user?.userId;
     if (!userId) {
       res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const userRole = req.user?.rol;
+    if (userRole === "CLIENTE") {
+      res.status(200).json([]);
       return;
     }
 
@@ -605,6 +651,12 @@ export const updateAvailability = async (req: AuthRequest, res: Response): Promi
     const userId = req.user?.userId;
     if (!userId) {
       res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const userRole = req.user?.rol;
+    if (userRole === "CLIENTE") {
+      res.status(403).json({ error: "Solo los profesionales pueden configurar su disponibilidad horaria." });
       return;
     }
 
@@ -647,6 +699,12 @@ export const getMyServices = async (
     const userId = req.user?.userId;
     if (!userId) {
       res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+
+    const userRole = req.user?.rol;
+    if (userRole === "CLIENTE") {
+      res.status(200).json([]);
       return;
     }
 
@@ -735,6 +793,12 @@ export const createService = async (
       return;
     }
 
+    const userRole = req.user?.rol;
+    if (userRole === "CLIENTE") {
+      res.status(403).json({ error: "Las cuentas de cliente no tienen permitido publicar servicios." });
+      return;
+    }
+
     const {
       oficio_id,
       titulo_servicio,
@@ -757,6 +821,13 @@ export const createService = async (
       where: { id: userId },
       include: { oficios: true },
     });
+
+    if (!pro) {
+      res.status(403).json({
+        error: "Solo los profesionales validados pueden publicar servicios.",
+      });
+      return;
+    }
 
     if (pro && pro.oficios && pro.oficios.length > 0) {
       const tieneOficio = pro.oficios.some((o) => o.id === Number(oficio_id));

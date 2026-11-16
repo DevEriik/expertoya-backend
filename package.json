@@ -10,6 +10,8 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "payment:smoke": "tsx scripts/payment-smoke.ts",
+    "review:smoke": "tsx scripts/reviews-smoke.ts",
+    "review:seed": "tsx scripts/seed-solicitud-finalizada.ts",
     "payment:reconcile": "tsx scripts/reconcile-payments.ts",
     "payment:reconcile:dry": "tsx scripts/reconcile-payments.ts --dry-run"
   },

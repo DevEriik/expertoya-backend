@@ -1,10 +1,5 @@
 import type { Server } from "socket.io";
 
-/**
- * Guarda la instancia de Socket.io para poder emitir eventos desde
- * controladores y jobs (que no reciben `io` directamente).
- * Se registra una sola vez dentro de initChatSocket(io).
- */
 let ioRef: Server | null = null;
 
 export const setIO = (io: Server): void => {
@@ -12,3 +7,19 @@ export const setIO = (io: Server): void => {
 };
 
 export const getIO = (): Server | null => ioRef;
+
+export const emitToRoom = (
+  room: string,
+  evento: string,
+  payload: unknown,
+): void => {
+  const io = getIO();
+  if (!io) {
+    console.warn(
+      `[Socket] io no inicializado; se omite "${evento}" para la sala ${room}.`,
+    );
+    return;
+  }
+
+  io.to(room).emit(evento, payload);
+};

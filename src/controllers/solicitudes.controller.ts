@@ -62,6 +62,12 @@ export const obtenerSolicitudesCliente = async (
     const solicitudes = await prisma.solicitudTrabajo.findMany({
       where: { cliente_id: clienteId },
       include: {
+        resena: true,
+        pagos: {
+          select: {
+            estado_pago: true,
+          },
+        },
         servicio: {
           include: {
             oficio: true,
@@ -80,10 +86,13 @@ export const obtenerSolicitudesCliente = async (
 
     const solicitudesMapeadas = solicitudes.map((sol) => ({
       _id: sol.id,
+      id: sol.id,
       estado: sol.estado_solicitud_trabajo,
       fechaTentativa: sol.fecha_solicitada,
       createdAt: sol.actualizado_en,
+      profesionalId: sol.servicio?.profesional_id,
       profesional: {
+        id: sol.servicio?.profesional_id,
         usuario: {
           nombre: sol.servicio?.profesional?.usuario?.nombre || "Profesional",
           apellido: sol.servicio?.profesional?.usuario?.apellido || "",
@@ -92,6 +101,20 @@ export const obtenerSolicitudesCliente = async (
       },
       descripcion: sol.descripcion || "",
       franjaHoraria: sol.franja_horaria || "A coordinar",
+      pagoLiberado: sol.pagos.some(
+        (p) => String(p.estado_pago).toUpperCase() === "LIBERADO"
+      ),
+      resena: sol.resena
+        ? {
+            id: sol.resena.id,
+            calificacion: sol.resena.calificacion,
+            comentario: sol.resena.comentario,
+            fotosUrls: sol.resena.fotosUrls,
+            respuestaProfesional: sol.resena.respuestaProfesional,
+            fechaRespuesta: sol.resena.fechaRespuesta,
+            createdAt: sol.resena.createdAt,
+          }
+        : null,
     }));
 
     return res.json({ data: solicitudesMapeadas });
