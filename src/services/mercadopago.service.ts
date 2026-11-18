@@ -293,14 +293,16 @@ export class MercadoPagoService {
   }
 
   /**
-   * Realiza un reembolso total de un pago en Mercado Pago.
+   * Realiza un reembolso total o parcial de un pago en Mercado Pago.
    * @param paymentId El ID del pago de Mercado Pago.
    * @param idempotencyKey Una clave de idempotencia para asegurar que la operación no se duplique.
+   * @param amount Monto opcional para reembolso parcial (si se omite, reembolsa el 100%).
    * @returns La respuesta del reembolso.
    */
   async refundPayment(
     paymentId: string,
     idempotencyKey: string,
+    amount?: number,
   ): Promise<RefundResponse> {
     if (!this.accessToken) {
       throw new Error("Mercado Pago Access Token no configurado.");
@@ -312,9 +314,9 @@ export class MercadoPagoService {
           method: "POST",
           headers: {
             ...this.getAuthHeaders(),
-            "X-Idempotency-Key": idempotencyKey, // Clave para idempotencia en reembolsos
+            "X-Idempotency-Key": idempotencyKey,
           },
-          body: JSON.stringify({ amount: undefined }), // undefined para reembolso total
+          body: JSON.stringify(amount !== undefined ? { amount } : {}),
         },
       );
 
@@ -325,7 +327,7 @@ export class MercadoPagoService {
           errorBody,
         );
         throw new Error(
-          `Error al solicitar reembolso en Mercado Pago: ${response.status} - ${JSON.stringify(errorBody)}`,
+          `Error al solicitar reembolso en Mercado Pago: ${response.status} ${JSON.stringify(errorBody)}`,
         );
       }
 

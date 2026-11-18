@@ -1245,8 +1245,8 @@ export class PaymentService {
           to: solicitud.cliente.email,
           subject: "¡Pago de solicitud liberado! ✅",
           html: `<p>Hola ${solicitud.cliente.nombre},</p>
-                 <p>Confirmamos que el pago de <strong>${formatCurrency(pagoActivo.monto_total)}</strong> por la solicitud "<strong>${solicitud.servicio.titulo_servicio}</strong>" ha sido liberado exitosamente al profesional.</p>
-                 <p>¡Esperamos que tu experiencia con ExpertoYa haya sido excelente!</p>`,
+                  <p>Confirmamos que el pago de <strong>${formatCurrency(pagoActivo.monto_total)}</strong> por la solicitud "<strong>${solicitud.servicio.titulo_servicio}</strong>" ha sido liberado exitosamente al profesional.</p>
+                  <p>¡Esperamos que tu experiencia con ExpertoYa haya sido excelente!</p>`,
         });
 
         this.notificationService.sendPushNotification(
@@ -1263,8 +1263,8 @@ export class PaymentService {
           to: solicitud.servicio.profesional.usuario.email,
           subject: "¡Has recibido un pago! 💰",
           html: `<p>Hola ${solicitud.servicio.profesional.usuario.nombre},</p>
-                 <p>Te confirmamos que el pago de <strong>${formatCurrency(pagoActivo.monto_neto_profesional)}</strong> por la solicitud "<strong>${solicitud.servicio.titulo_servicio}</strong>" ha sido liberado y ya está disponible según el método de payout configurado.</p>
-                 <p>¡Felicidades por tu trabajo!</p>`,
+                  <p>Te confirmamos que el pago de <strong>${formatCurrency(pagoActivo.monto_neto_profesional)}</strong> por la solicitud "<strong>${solicitud.servicio.titulo_servicio}</strong>" ha sido liberado y ya está disponible según el método de payout configurado.</p>
+                  <p>¡Felicidades por tu trabajo!</p>`,
         });
 
         return updatedPago;
@@ -1278,17 +1278,19 @@ export class PaymentService {
   }
 
   /**
-   * Procesa un reembolso total de un pago.
+   * Procesa un reembolso total o parcial de un pago.
    * Solo para uso administrativo.
    * @param pagoId ID del pago.
    * @param actorId ID del administrador que realiza la acción.
    * @param motivo Motivo del reembolso.
+   * @param montoParcial Monto opcional para reembolso parcial (si se omite, reembolsa el 100%).
    * @returns El pago escrow actualizado.
    */
   async refundPayment(
     pagoId: string,
     actorId: string,
     motivo: string,
+    montoParcial?: number,
   ): Promise<PagoEscrow> {
     if (!motivo || motivo.length < 5) {
       throw new Error(
@@ -1313,14 +1315,12 @@ export class PaymentService {
       throw new Error("Pago no encontrado.");
     }
 
-    // Mover validaciones de estado para evitar warnings de TS
     if (pago.estado_pago === EstadoPago.REEMBOLSADO) {
       console.log(`Pago ${pagoId} ya estaba REEMBOLSADO. Idempotencia.`);
-      return pago; // Idempotente
+      return pago;
     }
 
     if (pago.estado_pago === EstadoPago.LIBERADO) {
-      // Si ya está liberado, no reembolsar automáticamente
       await this.prismaClient.webhookEvent.create({
         data: {
           mp_event_id: `REFUND_FAIL_LIBERATED_${pagoId}_${Date.now()}`,
@@ -1351,6 +1351,20 @@ export class PaymentService {
       );
     }
 
+    const esParcial = montoParcial !== undefined;
+    if (esParcial) {
+      if (
+        typeof montoParcial !== "number" ||
+        isNaN(montoParcial) ||
+        montoParcial <= 0 ||
+        compareDecimals(toDecimal(montoParcial), pago.monto_total) >= 0
+      ) {
+        throw new Error(
+          `El monto de reembolso parcial debe ser mayor a 0 y menor al total (${pago.monto_total.toFixed(2)}).`,
+        );
+      }
+    }
+
     const idempotencyKey = generateLedgerReference(
       TipoMovimientoPago.REEMBOLSO,
       pago.id,
@@ -1360,6 +1374,7 @@ export class PaymentService {
       const refundResponse = await this.mpService.refundPayment(
         pago.transaccion_mp_id,
         idempotencyKey,
+        esParcial ? montoParcial : undefined,
       );
 
       if (
@@ -1372,7 +1387,6 @@ export class PaymentService {
       }
 
       const updatedPago = await this.prismaClient.$transaction(async (tx) => {
-        // Actualizar el pago a REEMBOLSADO
         const updated = await tx.pagoEscrow.update({
           where: { id: pagoId },
           data: {
@@ -1383,11 +1397,14 @@ export class PaymentService {
               ...((pago.metadata as object) || {}),
               refundMotivo: motivo,
               actorIdRefund: actorId,
+              esReembolsoParcial: esParcial,
+              montoReembolsado: esParcial
+                ? montoParcial
+                : pago.monto_total.toNumber(),
             } as Prisma.InputJsonValue,
           },
         });
 
-        // Cancelar payout pendiente o procesando
         if (
           pago.payout &&
           [EstadoPayout.PENDIENTE, EstadoPayout.PROCESANDO].includes(
@@ -1403,37 +1420,45 @@ export class PaymentService {
           });
         }
 
-        // Registrar movimientos de ajuste/reembolso
         const refundAmount = toDecimal(
-          refundResponse.amount || pago.monto_total,
-        ); // Usar monto reembolsado por MP si disponible, sino el total
+          esParcial ? montoParcial! : refundResponse.amount || pago.monto_total,
+        );
+
+        const factor = roundDecimal(refundAmount.dividedBy(pago.monto_total));
+        const comisionRevertida = esParcial
+          ? roundDecimal(pago.comision_plataforma.times(factor))
+          : pago.comision_plataforma;
+        const netoRevertido = esParcial
+          ? roundDecimal(pago.monto_neto_profesional.times(factor))
+          : pago.monto_neto_profesional;
+
         const movementsData = [
           {
             pago_id: updated.id,
             solicitud_id: updated.solicitud_id,
             tipo: TipoMovimientoPago.REEMBOLSO,
             cuenta: CuentaLedger.MERCADO_PAGO,
-            monto: refundAmount.negated(), // Salida de dinero de MP
+            monto: refundAmount.negated(),
             moneda: updated.moneda,
             referencia: generateLedgerReference(
               TipoMovimientoPago.REEMBOLSO,
               updated.id,
               "MP",
             ),
-            descripcion: `Reembolso total al cliente por MP (ID: ${refundResponse.id})`,
+            descripcion: `${esParcial ? "Reembolso parcial" : "Reembolso total"} al cliente por MP (ID: ${refundResponse.id})`,
             metadata: {
               actorId,
               motivo,
               mpRefundId: refundResponse.id,
+              esParcial,
             } as Prisma.InputJsonValue,
           },
-          // Movimientos de ajuste para anular los cobros anteriores en el ledger interno
           {
             pago_id: updated.id,
             solicitud_id: updated.solicitud_id,
             tipo: TipoMovimientoPago.AJUSTE,
             cuenta: CuentaLedger.PLATAFORMA,
-            monto: updated.comision_plataforma.negated(), // Devolver comisión a plataforma
+            monto: comisionRevertida.negated(),
             moneda: updated.moneda,
             referencia: generateLedgerReference(
               TipoMovimientoPago.AJUSTE,
@@ -1448,7 +1473,7 @@ export class PaymentService {
             solicitud_id: updated.solicitud_id,
             tipo: TipoMovimientoPago.AJUSTE,
             cuenta: CuentaLedger.PROFESIONAL,
-            monto: updated.monto_neto_profesional.negated(), // Devolver neto a profesional (o eliminar saldo)
+            monto: netoRevertido.negated(),
             moneda: updated.moneda,
             referencia: generateLedgerReference(
               TipoMovimientoPago.AJUSTE,
@@ -1460,7 +1485,6 @@ export class PaymentService {
           },
         ];
 
-        // Usar create para cada movimiento para la idempotencia controlada por la referencia única
         for (const data of movementsData) {
           try {
             await tx.movimientoPago.create({ data });
@@ -1475,11 +1499,10 @@ export class PaymentService {
           }
         }
 
-        // Notificar al cliente sobre el reembolso
         this.notificationService.sendPushNotification(
           pago.solicitud.cliente_id,
           "¡Reembolso completado!",
-          `Se ha reembolsado el pago de la solicitud '${pago.solicitud.servicio.titulo_servicio}'.`,
+          `Se ha reembolsado ${formatCurrency(refundAmount)} de la solicitud '${pago.solicitud.servicio.titulo_servicio}'.`,
           {
             type: "payment_refunded",
             solicitudId: pago.solicitud_id,
@@ -1490,9 +1513,8 @@ export class PaymentService {
           to: pago.solicitud.cliente.email,
           subject: "¡Tu reembolso ha sido procesado! 💸",
           html: `<p>Hola ${pago.solicitud.cliente.nombre},</p>
-                 <p>Confirmamos que el reembolso de <strong>${formatCurrency(refundAmount)}</strong> por la solicitud "<strong>${pago.solicitud.servicio.titulo_servicio}</strong>" ha sido procesado y se verá reflejado en tu cuenta según los tiempos de tu banco.</p>
-                 <p>ID de reembolso de Mercado Pago: ${refundResponse.id}</p>
-                 <p>Si tienes alguna pregunta, no dudes en contactarnos.</p>`,
+                  <p>Confirmamos que el ${esParcial ? "reembolso parcial" : "reembolso total"} de <strong>${formatCurrency(refundAmount)}</strong> por la solicitud "<strong>${pago.solicitud.servicio.titulo_servicio}</strong>" ha sido procesado.</p>
+                  <p>ID de reembolso de Mercado Pago: ${refundResponse.id}</p>`,
         });
 
         return updated;

@@ -24,6 +24,7 @@ import reviewRoutes from "./src/routes/review.routes";
 import paymentRedirectRoutes from "./src/routes/payment-redirect.routes";
 import { iniciarCronNotificaciones } from "./src/jobs/notification.job";
 import { iniciarCronSolicitudes } from "./src/jobs/solicitudes.job";
+import disputasRouter from "./src/routes/disputas.routes";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -83,6 +84,7 @@ app.use("/api/admin/payments", adminPaymentRoutes);
 app.use("/api/webhooks/mercadopago", webhookRoutes);
 
 app.use("/api/solicitudes", solicitudRoutes);
+app.use("/api/disputas", disputasRouter);
 app.use("/api/reviews", reviewRoutes);
 
 // Puente de retorno de Mercado Pago Checkout Pro (back_urls)
