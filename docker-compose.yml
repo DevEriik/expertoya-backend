@@ -1,9 +1,8 @@
-version: "3.8"
-
 services:
   api:
     build: .
     container_name: expertoya-api
+    command: npm run dev
     ports:
       - "3000:3000"
     volumes:
@@ -14,3 +13,13 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3000
+      - MP_ENV=${MP_ENV:-sandbox}
+      - MP_ACCESS_TOKEN=${MP_ACCESS_TOKEN}
+      - MP_PUBLIC_KEY=${MP_PUBLIC_KEY}
+      - MP_WEBHOOK_SECRET=${MP_WEBHOOK_SECRET}
+      - MP_COLLECTOR_ID=${MP_COLLECTOR_ID}
+      - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL:-http://localhost:3000}
+      - APP_PUBLIC_URL=${APP_PUBLIC_URL:-http://localhost:8081}
+      - COMISION_PORCENTAJE=${COMISION_PORCENTAJE:-10}
+      - PAYOUT_MODE=${PAYOUT_MODE:-SIMULADO}
+      - ALLOW_PAYMENT_SIMULATION=${ALLOW_PAYMENT_SIMULATION:-true}

@@ -1,0 +1,71 @@
+name: Escáner de Seguridad (Backend)
+
+on:
+  push:
+    branches:
+      - developer
+
+jobs:
+  seguridad:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Ejecutar Auditoría de npm
+        # El "|| true" evita que GitHub Actions marque error crítico y detenga el proceso si encuentra vulnerabilidades
+        run: npm audit --json > audit.json || true
+
+      - name: Analizar resultados y notificar a Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_BACKEND }}
+        run: |
+          # 1. Extraer la cantidad de vulnerabilidades usando jq
+          CRITICAL=$(jq '.metadata.vulnerabilities.critical' audit.json)
+          HIGH=$(jq '.metadata.vulnerabilities.high' audit.json)
+          MODERATE=$(jq '.metadata.vulnerabilities.moderate' audit.json)
+          LOW=$(jq '.metadata.vulnerabilities.low' audit.json)
+          TOTAL=$(jq '.metadata.vulnerabilities.total' audit.json)
+
+          # 2. Determinar el color y estado según la gravedad
+          if [ "$CRITICAL" -gt 0 ] \vert{}\vert{} [ "$HIGH" -gt 0 ]; then
+            COLOR=16711680 # Rojo
+            STATUS="⚠️ CRÍTICO: Se requiere actualización urgente"
+          elif [ "$MODERATE" -gt 0 ] \vert{}\vert{} [ "$LOW" -gt 0 ]; then
+            COLOR=16776960 # Amarillo
+            STATUS="🚧 ADVERTENCIA: Vulnerabilidades menores"
+          else
+            COLOR=65280 # Verde
+            STATUS="✅ SEGURO: Cero vulnerabilidades encontradas"
+          fi
+
+          # 3. Armar la tarjeta de Discord
+          cat <<EOF > discord_payload.json
+          {
+            "username": "Escáner de Seguridad",
+            "avatar_url": "https://cdn-icons-png.flaticon.com/512/2092/2092111.png",
+            "embeds": [{
+              "title": "🛡️ Reporte de Seguridad de Dependencias",
+              "description": "**Estado:** $STATUS\nSe ha analizado el archivo \`package-lock.json\` de la rama **developer**.",
+              "color": $COLOR,
+              "fields": [
+                { "name": "🔴 Críticas", "value": "$CRITICAL", "inline": true },
+                { "name": "🟠 Altas", "value": "$HIGH", "inline": true },
+                { "name": "🟡 Moderadas", "value": "$MODERATE", "inline": true },
+                { "name": "🔵 Bajas", "value": "$LOW", "inline": true },
+                { "name": "📊 Total", "value": "$TOTAL", "inline": false }
+              ],
+              "footer": {
+                "text": "Ejecuta 'npm audit fix' en tu terminal para intentar resolver los problemas automáticamente."
+              }
+            }]
+          }
+          EOF
+
+          # 4. Enviar el mensaje
+          curl -H "Content-Type: application/json" -X POST -d @discord_payload.json $DISCORD_WEBHOOK

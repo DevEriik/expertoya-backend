@@ -1,0 +1,534 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  CLIENTE
+  PROFESIONAL
+  ADMIN
+}
+
+enum EstadoSolicitud {
+  PENDIENTE
+  ACEPTADO
+  RECHAZADO
+  EN_CURSO
+  FINALIZADO
+  DISPUTA
+  CANCELADO
+  CANCELADO_AUTO
+  BLOQUEADO
+}
+
+enum TipoMotivoReporte {
+  PAGO_FUERA_PLATAFORMA
+  ACOSO_O_LENGUAJE_OFENSIVO
+  INCUMPLIMIENTO_SERVICIO
+  SUPLANTACION_O_FRAUDE
+  OTRO
+}
+
+enum EstadoReporte {
+  PENDIENTE
+  EN_REVISION
+  RESUELTO_CON_SANCION
+  DESESTIMADO
+}
+
+enum SancionAplicada {
+  ADVERTENCIA
+  SUSPENSION_TEMPORAL
+  EXPULSION_DEFINITIVA
+  NINGUNA
+}
+
+enum EstadoPago {
+  PENDIENTE
+  RETENIDO
+  LIBERADO
+  REEMBOLSADO
+  FALLIDO
+  CANCELADO
+  EN_DISPUTA
+  CONTRACARGO
+  REVISION_MANUAL
+}
+
+enum EstadoPayout {
+  PENDIENTE
+  PROCESANDO
+  PAGADO
+  FALLIDO
+  CANCELADO
+}
+
+enum MetodoPayout {
+  SIMULADO
+  MANUAL
+  MERCADO_PAGO
+}
+
+enum TipoMovimientoPago {
+  COBRO
+  COMISION
+  FEE_MP
+  NETO_PROFESIONAL
+  PAYOUT
+  REEMBOLSO
+  CONTRACARGO
+  AJUSTE
+}
+
+enum CuentaLedger {
+  MERCADO_PAGO
+  PLATAFORMA
+  PROFESIONAL
+}
+
+enum EstadoDisputa {
+  ABIERTA
+  RESUELTA_CLIENTE          // Reembolso total al cliente
+  RESUELTA_REEMBOLSO_PARCIAL // Reembolso parcial al cliente
+  RESUELTA_PROFESIONAL      // Liberación de fondos al profesional
+}
+
+enum EstadoAuditoria {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+model Usuario {
+  id                    String                   @id @default(uuid())
+  email                 String                   @unique
+  password_hash         String
+  nombre                String
+  apellido              String
+  telefono              String?
+  foto_perfil           String?
+  fecha_nacimiento      DateTime?
+  rol                   Role                     @default(CLIENTE)
+  activo                Boolean                  @default(true)
+  strikes               Int                      @default(0)
+  suspendido_hasta      DateTime?
+  creado_en             DateTime                 @default(now())
+  sonidoActivo          Boolean                  @default(true) @map("sonido_activo")
+
+  // Relaciones
+  profesional           Profesional?
+  dispositivos_push     DispositivoPush[]
+  notificaciones        Notificacion[]
+  historial_diagnostico HistorialDiagnosticoIA[]
+  solicitudes           SolicitudTrabajo[]       @relation("ClienteSolicitud")
+  mensajes_enviados     MensajeChat[]            @relation("RemitenteMensaje")
+  resenasDadas          Resena[]                 @relation("ResenaCliente")
+  profesionales_validados Profesional[]          @relation("AdminValidador")
+  sesiones              Sesion[]
+  bloqueos_realizados   BloqueoUsuario[]         @relation("BloqueosRealizados")
+  bloqueos_recibidos    BloqueoUsuario[]         @relation("BloqueosRecibidos")
+  denuncias_emitidas    ReporteDenuncia[]        @relation("DenunciasEmitidas")
+  denuncias_recibidas   ReporteDenuncia[]        @relation("DenunciasRecibidas")
+  reportes_revisados    ReporteDenuncia[]        @relation("AdminReportesRevisados")
+  disputas_como_cliente     Disputa[] @relation("DisputasCliente")
+  disputas_como_profesional Disputa[] @relation("DisputasProfesional")
+  disputas_resueltas        Disputa[] @relation("AdminDisputasResueltas")
+  @@map("usuario")
+}
+
+model DispositivoPush {
+  id         String   @id @default(uuid())
+  userId     String   @map("usuario_id")
+  token      String   @unique @map("token_dispositivo")
+  plataforma String
+  creado_en  DateTime @default(now())
+
+  usuario Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("token_dispositivo")
+}
+
+model Profesional {
+  id                    String          @id
+  validado_por          String?
+  estado_validado       Boolean         @default(false)
+  estado_auditoria      EstadoAuditoria @default(PENDIENTE)
+  disponible            Boolean         @default(true)
+  motivo_rechazo        String?         @db.Text
+  matricula_documento   String?
+  fecha_validacion      DateTime?
+  descripcion_perfil    String?
+  experiencia           Int?            @default(0)
+  dni_frente            String?
+  dni_dorso             String?
+  selfie_biometrica     String?
+  antecedentes_penales  String?
+  certificado_no_deudor String?
+  cuit                  String?
+  constancia_afip       String?
+  calificacionPromedio  Float           @default(0) @map("calificacion_promedio")
+  totalResenas          Int             @default(0) @map("total_resenas")
+  ubicacion_geografica  String?
+  latitud               Float?
+  longitud              Float?
+
+  // Datos para Payout Manual
+  cbu                   String?
+  alias_cbu             String?
+  banco                 String?
+  titular_cuenta        String?
+
+  usuario   Usuario  @relation(fields: [id], references: [id], onDelete: Cascade)
+  validador Usuario? @relation("AdminValidador", fields: [validado_por], references: [id])
+
+  disponibilidades      DisponibilidadProfesional[]
+  servicios_publicados  ServicioPublicado[]
+  resenasRecibidas      Resena[]        @relation("ResenaProfesional")
+  oficios               Oficio[]        @relation("ProfesionalOficios")
+  payouts               Payout[]
+
+  @@map("profesional")
+}
+
+model DisponibilidadProfesional {
+  id             String   @id @default(uuid())
+  profesional_id String
+  dia_semana     Int
+  hora_inicio    DateTime @db.Time()
+  hora_fin       DateTime @db.Time()
+  creado_en      DateTime @default(now())
+
+  profesional Profesional @relation(fields: [profesional_id], references: [id], onDelete: Cascade)
+
+  @@map("disponibilidad_profesional")
+}
+
+model Oficio {
+  id                 Int      @id @default(autoincrement())
+  nombre_oficio      String
+  descripcion_oficio String?
+
+  servicios_publicados ServicioPublicado[]
+  profesionales        Profesional[] @relation("ProfesionalOficios")
+
+  @@map("oficio")
+}
+
+model ServicioPublicado {
+  id                   String   @id @default(uuid())
+  profesional_id       String
+  oficio_id            Int
+  titulo_servicio      String
+  descripcion_servicio String
+  costo_estimado       Decimal  @db.Decimal(10, 2)
+  duracion_estimada    String
+  fotos_servicio       Json?
+  servicio_activo      Boolean  @default(true)
+
+  profesional Profesional @relation(fields: [profesional_id], references: [id], onDelete: Cascade)
+  oficio      Oficio      @relation(fields: [oficio_id], references: [id], onDelete: Restrict)
+  solicitudes SolicitudTrabajo[]
+
+  @@map("servicio_publicado")
+}
+
+model HistorialDiagnosticoIA {
+  id              String   @id @default(uuid())
+  cliente_id      String
+  input_cliente   String
+  oficio_sugerido String?
+  fecha_consulta  DateTime @default(now())
+
+  cliente Usuario @relation(fields: [cliente_id], references: [id], onDelete: Cascade)
+
+  @@map("historial_diagnostico_ia")
+}
+
+model SolicitudTrabajo {
+  id                       String          @id @default(uuid())
+  cliente_id               String
+  servicio_id              String
+  fecha_solicitada         DateTime
+  monto_acordado           Decimal?        @db.Decimal(12, 2)
+  confirmado_cliente_en     DateTime?
+  confirmado_profesional_en DateTime?
+  liberado_en               DateTime?
+  estado_solicitud_trabajo EstadoSolicitud @default(PENDIENTE)
+  actualizado_en           DateTime        @updatedAt
+  expira_at                DateTime?
+  descripcion              String?         @db.Text
+  franja_horaria           String?
+  cliente  Usuario           @relation("ClienteSolicitud", fields: [cliente_id], references: [id], onDelete: Cascade)
+  servicio ServicioPublicado @relation(fields: [servicio_id], references: [id], onDelete: Cascade)
+
+  pagos              PagoEscrow[]
+  payout             Payout?
+  movimientos        MovimientoPago[]
+  sesiones_video     SesionVideollamada[]
+  disputas           Disputa[]
+  mensajes           MensajeChat[]
+  resena             Resena?
+  bloqueos           BloqueoUsuario[]
+  reportes           ReporteDenuncia[]
+
+  @@map("solicitud_trabajo")
+}
+
+model PagoEscrow {
+  id                      String          @id @default(uuid())
+  solicitud_id            String
+  transaccion_mp_id       String?         @unique
+  external_reference      String?         @unique
+  mp_preference_id        String?         @unique
+  mp_status               String?
+  mp_status_detail        String?
+  mp_payment_method_id    String?
+  mp_payment_type_id      String?
+  mp_merchant_order_id    String?
+  monto_total             Decimal         @db.Decimal(12, 2)
+  comision_porcentaje     Decimal         @default(10.00) @db.Decimal(5, 2)
+  comision_plataforma     Decimal         @db.Decimal(12, 2)
+  fee_mp                  Decimal         @default(0) @db.Decimal(12, 2)
+  monto_neto_profesional  Decimal         @default(0) @db.Decimal(12, 2)
+  moneda                  String          @default("ARS")
+  estado_pago             EstadoPago      @default(PENDIENTE)
+  init_point              String?
+  sandbox_init_point      String?
+  fecha_pago              DateTime        @default(now())
+  fecha_aprobacion        DateTime?
+  fecha_liberacion        DateTime?
+  fecha_reembolso         DateTime?
+  mp_refund_id            String?
+  comprobante_numero      String?         @unique
+  comprobante_hash        String?
+  comprobante_url         String?
+  comprobante_generado_en DateTime?
+  metadata                Json?
+  creado_en               DateTime        @default(now())
+  actualizado_en          DateTime        @updatedAt
+  expiracion_preferencia  DateTime?       // AGREGAR ESTA LÍNEA
+
+  solicitud   SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+  payout      Payout?
+  movimientos MovimientoPago[]
+
+  @@index([solicitud_id])
+  @@index([estado_pago])
+  @@map("pago_escrow")
+}
+
+model Payout {
+  id              String       @id @default(uuid())
+  solicitud_id    String       @unique
+  pago_id         String       @unique
+  profesional_id  String
+  monto           Decimal      @db.Decimal(12, 2)
+  estado          EstadoPayout @default(PENDIENTE)
+  metodo          MetodoPayout @default(SIMULADO)
+  referencia      String?      @unique
+  comprobante_url String?
+  error           String?
+  creado_en       DateTime     @default(now())
+  pagado_en       DateTime?
+
+  solicitud   SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+  pago        PagoEscrow       @relation(fields: [pago_id], references: [id], onDelete: Restrict)
+  profesional Profesional      @relation(fields: [profesional_id], references: [id], onDelete: Restrict)
+
+  @@index([profesional_id, estado])
+  @@map("payout")
+}
+
+model MovimientoPago {
+  id           String             @id @default(uuid())
+  pago_id      String
+  solicitud_id String
+  tipo         TipoMovimientoPago
+  cuenta       CuentaLedger
+  monto        Decimal            @db.Decimal(12, 2)
+  moneda       String             @default("ARS")
+  referencia   String             @unique
+  descripcion  String?
+  metadata     Json?
+  creado_en    DateTime           @default(now())
+
+  pago      PagoEscrow       @relation(fields: [pago_id], references: [id], onDelete: Cascade)
+  solicitud SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+
+  @@index([pago_id, creado_en])
+  @@map("movimiento_pago")
+}
+
+model WebhookEvent {
+  id           String    @id @default(uuid())
+  mp_event_id  String    @unique
+  tipo         String
+  accion       String?
+  payload      Json?
+  procesado    Boolean   @default(false)
+  error        String?
+  recibido_en  DateTime  @default(now())
+  procesado_en DateTime?
+
+  @@map("webhook_event")
+}
+
+model SesionVideollamada {
+  id                String   @id @default(uuid())
+  solicitud_id      String
+  proveedor_id      String?
+  hora_inicio       DateTime @default(now())
+  hora_fin          DateTime?
+  duracion_segundos Int?
+
+  solicitud SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+
+  @@map("sesion_videollamada")
+}
+
+model Resena {
+  id                   String    @id @default(uuid())
+  solicitudId          String    @unique @map("solicitud_id")
+  clienteId            String    @map("cliente_id")
+  profesionalId        String    @map("profesional_id")
+  calificacion         Int
+  comentario           String?   @db.Text
+  fotosUrls            String[]  @default([]) @map("fotos_urls")
+  respuestaProfesional String?   @map("respuesta_profesional") @db.Text
+  fechaRespuesta       DateTime? @map("fecha_respuesta")
+  createdAt            DateTime  @default(now()) @map("fecha_creacion")
+
+  solicitud   SolicitudTrabajo @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  cliente     Usuario          @relation("ResenaCliente", fields: [clienteId], references: [id], onDelete: Cascade)
+  profesional Profesional      @relation("ResenaProfesional", fields: [profesionalId], references: [id], onDelete: Cascade)
+
+  @@index([profesionalId, createdAt])
+  @@map("resenia")
+}
+
+model MensajeChat {
+  id           String   @id @default(uuid())
+  solicitud_id String
+  remitente_id String
+  contenido    String
+  adjunto_url  String?
+  enviado_en   DateTime @default(now())
+  leido        Boolean  @default(false)
+
+  solicitud SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+  remitente Usuario          @relation("RemitenteMensaje", fields: [remitente_id], references: [id], onDelete: Cascade)
+
+  @@map("mensaje_chat")
+}
+
+model Disputa {
+  id                  String        @id @default(uuid())
+  solicitud_id        String
+  cliente_id          String
+  profesional_id      String
+  pago_id             String?
+  motivo              String
+  descripcion         String?       @db.Text
+  evidencia_urls      Json?         // Por si el cliente adjunta fotos al reclamo
+  estado              EstadoDisputa @default(ABIERTA)
+  monto_retenido      Decimal?      @db.Decimal(12, 2)
+  monto_reembolsado   Decimal?      @db.Decimal(12, 2)
+  resolucion_admin    String?       @db.Text
+  resuelto_por        String?
+  abierta_en          DateTime      @default(now())
+  resuelta_en         DateTime?
+
+  solicitud     SolicitudTrabajo @relation(fields: [solicitud_id], references: [id], onDelete: Cascade)
+  cliente       Usuario          @relation("DisputasCliente", fields: [cliente_id], references: [id], onDelete: Cascade)
+  profesional   Usuario          @relation("DisputasProfesional", fields: [profesional_id], references: [id], onDelete: Cascade)
+  admin_revisor Usuario?         @relation("AdminDisputasResueltas", fields: [resuelto_por], references: [id], onDelete: SetNull)
+
+  @@index([solicitud_id])
+  @@index([estado])
+  @@map("disputa")
+}
+
+model Sesion {
+  id         String   @id @default(uuid())
+  usuario_id String
+  token      String   @unique
+  plataforma String?
+  expiresAt  DateTime
+  creado_en  DateTime @default(now())
+
+  usuario Usuario @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+
+  @@map("sesion")
+}
+
+model Notificacion {
+  id              String    @id @default(uuid())
+  userId          String    @map("usuario_id")
+  tipo            String
+  titulo          String
+  cuerpo          String    @db.Text
+  data            Json?
+  leida           Boolean   @default(false)
+  critica         Boolean   @default(false)
+  intentosReenvio Int       @default(0) @map("intentos_reenvio")
+  ultimoEnvioAt   DateTime? @map("ultimo_envio_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  usuario Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, leida])
+  @@index([critica, leida, ultimoEnvioAt])
+  @@map("notificacion")
+}
+
+// 1. Registro de bloqueos bilaterales
+model BloqueoUsuario {
+  id              String            @id @default(uuid())
+  bloqueador_id   String
+  bloqueado_id    String
+  solicitud_id    String?
+  motivo          String            @db.Text
+  fecha_bloqueo   DateTime          @default(now())
+  activo          Boolean           @default(true)
+
+  bloqueador      Usuario           @relation("BloqueosRealizados", fields: [bloqueador_id], references: [id], onDelete: Cascade)
+  bloqueado       Usuario           @relation("BloqueosRecibidos", fields: [bloqueado_id], references: [id], onDelete: Cascade)
+  solicitud       SolicitudTrabajo? @relation(fields: [solicitud_id], references: [id], onDelete: SetNull)
+
+  @@index([bloqueador_id])
+  @@index([bloqueado_id])
+  @@map("bloqueo_usuario")
+}
+
+// 2. Denuncias formales para auditoría del Administrador
+model ReporteDenuncia {
+  id                String            @id @default(uuid())
+  denunciante_id    String
+  denunciado_id     String
+  solicitud_id      String?
+  tipo_motivo       TipoMotivoReporte
+  descripcion       String            @db.Text
+  captura_url       String?
+  estado            EstadoReporte     @default(PENDIENTE)
+  sancion_aplicada  SancionAplicada   @default(NINGUNA)
+  resolucion_admin  String?           @db.Text
+  revisado_por      String?
+  creado_en         DateTime          @default(now())
+  actualizado_en    DateTime          @updatedAt
+
+  denunciante       Usuario           @relation("DenunciasEmitidas", fields: [denunciante_id], references: [id], onDelete: Cascade)
+  denunciado        Usuario           @relation("DenunciasRecibidas", fields: [denunciado_id], references: [id], onDelete: Cascade)
+  solicitud         SolicitudTrabajo? @relation(fields: [solicitud_id], references: [id], onDelete: SetNull)
+  admin_revisor     Usuario?          @relation("AdminReportesRevisados", fields: [revisado_por], references: [id], onDelete: SetNull)
+
+  @@index([denunciante_id])
+  @@index([denunciado_id])
+  @@index([estado])
+  @@map("reporte_denuncia")
+}
