@@ -1,22 +1,23 @@
 import { Request, Response } from "express";
-import { GoogleGenAI } from "@google/genai";
 
-let aiInstance: GoogleGenAI | null = null;
-function getAIClient(): GoogleGenAI {
-  if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY no está configurada en las variables de entorno del servidor.");
-    }
-    aiInstance = new GoogleGenAI({ apiKey });
+function getGeminiApiKey(): string {
+  const apiKey = (
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    ""
+  ).trim();
+  if (!apiKey) {
+    throw new Error(
+      "GEMINI_API_KEY no está configurada en las variables de entorno del servidor.",
+    );
   }
-  return aiInstance;
+  return apiKey;
 }
 
 const MODELOS: string[] = (
   process.env.GEMINI_MODELS ??
   process.env.GEMINI_MODEL ??
-  "gemini-2.5-flash,gemini-2.0-flash,gemini-1.5-flash,gemini-3.5-flash,gemini-3.1-flash-lite"
+  "gemini-2.5-flash,gemini-2.0-flash,gemini-3.1-flash-lite,gemini-flash-latest"
 )
   .split(",")
   .map((m) => m.trim())
@@ -24,9 +25,12 @@ const MODELOS: string[] = (
 
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function generarConFallback(partsToSend: any[], temperature: number = 0.3) {
+async function generarConFallback(
+  partsToSend: any[],
+  temperature: number = 0.3,
+): Promise<{ text: string }> {
   let ultimoError: any = null;
-  const ai = getAIClient();
+  const apiKey = getGeminiApiKey();
 
   for (const model of MODELOS) {
     for (let intento = 1; intento <= 2; intento++) {
@@ -34,19 +38,49 @@ async function generarConFallback(partsToSend: any[], temperature: number = 0.3)
         console.log(
           `Enviando consulta a Gemini (${model}), intento ${intento}...`,
         );
-        return await ai.models.generateContent({
-          model,
-          contents: [{ role: "user", parts: partsToSend }],
-          config: { responseMimeType: "application/json", temperature },
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: partsToSend }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              temperature,
+            },
+          }),
         });
+
+        const data: any = await resp.json().catch(() => ({}));
+
+        if (!resp.ok) {
+          const err: any = new Error(
+            data?.error?.message || `Error HTTP ${resp.status} en Gemini`,
+          );
+          err.status = resp.status;
+          throw err;
+        }
+
+        const text: string =
+          data?.candidates?.[0]?.content?.parts
+            ?.map((p: any) => p?.text ?? "")
+            .join("") ?? "";
+
+        return { text };
       } catch (e: any) {
         ultimoError = e;
         const status = e?.status ?? e?.code;
-        console.error(`Error Gemini (${model}) -> status: ${status}`);
+        console.error(
+          `Error Gemini (${model}) -> status: ${status} | ${e?.message}`,
+        );
 
-        if (status === 404 || status === 429) break;
+        if (status === 404 || status === 429 || status === 400) break;
         if (status === 503 || status === 500) {
-          if (intento < 2) await dormir(1500);
+          if (intento < 2) await dormir(1000);
           continue;
         }
         throw e;
@@ -86,8 +120,8 @@ Reglas estrictas:
 2. Si no es un problema doméstico o no hay información útil, devuelve EXACTAMENTE: {"error": "imagen_invalida"}
 3. En cualquier otro caso devuelve un JSON con esta forma:
 {"resumen": "descripción breve del problema en una frase", "oficios": ["Plomero", "Albañil"], "urgente": false, "advertencia": ""}
-  - "oficios": entre 1 y 3 oficios, del más al menos probable. Usa nombres simples como Plomero, Electricista, Gasista, Albañil, Pintor, Carpintero, Cerrajero, Techista, Herrero, Técnico en aire acondicionado, Jardinero.
-  - "urgente": true solo si hay riesgo (olor a gas, chispas, cables expuestos, filtración grave). En ese caso "advertencia" explica brevemente qué hacer de inmediato.
+- "oficios": entre 1 y 3 oficios, del más al menos probable. Usa nombres simples como Plomero, Electricista, Gasista, Albañil, Pintor, Carpintero, Cerrajero, Techista, Herrero, Técnico en aire acondicionado, Jardinero.
+- "urgente": true solo si hay riesgo (olor a gas, chispas, cables expuestos, filtración grave). En ese caso "advertencia" explica brevemente qué hacer de inmediato.
 Devuelve SOLO JSON válido, sin texto extra.`;
 
     const partsToSend: any[] = [];
@@ -191,11 +225,38 @@ Devuelve SOLO JSON válido, sin texto extra.`;
  * Lista de términos ofensivos, discriminatorios o inapropiados para filtro previo.
  */
 const PALABRAS_OFENSIVAS = [
-  "mierda", "pelotudo", "pelotuda", "boludo de mierda", "hijo de puta",
-  "hija de puta", "puto", "puta", "concha de tu madre", "conchudo",
-  "conchuda", "forro", "forra", "tarado", "tarada", "imbecil", "estafador",
-  "estafadora", "estafa", "robo", "droga", "cocaina", "marihuana", "armas",
-  "sicario", "matar", "asesinar", "violacion", "nazi", "racista", "discriminacion", "odio"
+  "mierda",
+  "pelotudo",
+  "pelotuda",
+  "boludo de mierda",
+  "hijo de puta",
+  "hija de puta",
+  "puto",
+  "puta",
+  "concha de tu madre",
+  "conchudo",
+  "conchuda",
+  "forro",
+  "forra",
+  "tarado",
+  "tarada",
+  "imbecil",
+  "estafador",
+  "estafadora",
+  "estafa",
+  "robo",
+  "droga",
+  "cocaina",
+  "marihuana",
+  "armas",
+  "sicario",
+  "matar",
+  "asesinar",
+  "violacion",
+  "nazi",
+  "racista",
+  "discriminacion",
+  "odio",
 ];
 
 function contieneTerminosInapropiados(texto: string): boolean {
@@ -215,47 +276,34 @@ function contieneTerminosInapropiados(texto: string): boolean {
 
 /**
  * Motor de redacción comercial dinámico de contingencia.
- * Genera textos comerciales persuasivos y variados cuando la API de Gemini no cuenta con clave configurada o está temporalmente saturada.
  */
 function generarDescripcionComercialLocal(
   titulo: string,
   categoria: string,
-  descripcionActual: string = ""
+  descripcionActual: string = "",
 ): string {
   const opciones = [
-    // Opción 1: Enfoque resolutivo y de tranquilidad
     `¿Buscás una solución definitiva y garantizada para ${titulo}? Como profesionales especializados en ${categoria}, cuidamos cada detalle para ofrecerte un trabajo prolijo, puntual y con materiales de primera línea. Contactanos hoy mismo para coordinar una visita y resolverlo sin demoras.`,
-
-    // Opción 2: Enfoque con viñetas de valor
     `Servicio profesional y calificado de ${titulo}:\n• Diagnóstico honesto y evaluación detallada.\n• Materiales de alta resistencia y herramientas de precisión.\n• Cumplimiento estricto de normas de seguridad en ${categoria}.\n¡Escribinos y coordinamos el horario que te quede más cómodo!`,
-
-    // Opción 3: Enfoque técnico y de experiencia
     `Especialistas en ${categoria}: llevamos a cabo trabajos de ${titulo} con amplia trayectoria en el rubro. Nos enfocamos en diagnósticos certeros que van a la raíz del problema, asegurando terminaciones impecables y resultados que perduran en el tiempo. Atención personalizada y garantía de satisfacción.`,
-
-    // Opción 4: Enfoque cercano para el hogar
     `Tu tranquilidad y la de tu hogar son nuestra prioridad. Brindamos servicio integral de ${titulo} con máxima prolijidad, orden y respeto por tus espacios. Brindamos asesoramiento claro de principio a fin para que tomes la mejor decisión sin sobrecostos. Consultanos sin compromiso.`,
-
-    // Opción 5: Enfoque ágil y de respuesta rápida
     `¿Necesitás resolver ${titulo} de forma ágil, segura y con mano de obra experta? Brindamos cobertura rápida en trabajos de ${categoria}, garantizando puntualidad y ejecución impecable bajo los más exigentes estándares técnicos. ¡Escribinos para agendar tu servicio a la brevedad!`,
-
-    // Opción 6: Enfoque de garantía y terminaciones
     `Garantizá el óptimo funcionamiento de tus instalaciones con nuestro servicio de ${titulo}. Nos caracterizamos por la dedicación en cada terminación y el uso exclusivo de insumos homologados en ${categoria}. Trabajo 100% garantizado por escrito y presupuesto accesible.`,
-
-    // Opción 7: Enfoque preventivo y asesoramiento
-    `Evitá dolores de cabeza futuros: realizamos ${titulo} con evaluación técnica exhaustiva. Detectamos y resolvemos cada detalle con herramientas profesionales para asegurar una intervención segura, eficiente y duradera en ${categoria}. ¡Escribinos para coordinar tu consulta hoy mismo!`
+    `Evitá dolores de cabeza futuros: realizamos ${titulo} con evaluación técnica exhaustiva. Detectamos y resolvemos cada detalle con herramientas profesionales para asegurar una intervención segura, eficiente y duradera en ${categoria}. ¡Escribinos para coordinar tu consulta hoy mismo!`,
   ];
 
   const opcionesDisponibles = opciones.filter(
-    (opc) => opc.trim().toLowerCase() !== descripcionActual.trim().toLowerCase()
+    (opc) =>
+      opc.trim().toLowerCase() !== descripcionActual.trim().toLowerCase(),
   );
-  const listaFinal = opcionesDisponibles.length > 0 ? opcionesDisponibles : opciones;
+  const listaFinal =
+    opcionesDisponibles.length > 0 ? opcionesDisponibles : opciones;
 
   return listaFinal[Math.floor(Math.random() * listaFinal.length)];
 }
 
 /**
  * POST /api/ia/generate-description
- * Endpoint para generar propuestas de redacción comercial persuasivas para servicios de ExpertoYa.
  */
 export const generateDescription = async (req: Request, res: Response) => {
   let tituloLimpio = "";
@@ -266,37 +314,45 @@ export const generateDescription = async (req: Request, res: Response) => {
 
     if (!titulo || typeof titulo !== "string" || !titulo.trim()) {
       return res.status(400).json({
-        error: "El título del servicio es requerido para redactar la descripción.",
+        error:
+          "El título del servicio es requerido para redactar la descripción.",
       });
     }
 
     if (!categoria || typeof categoria !== "string" || !categoria.trim()) {
       return res.status(400).json({
-        error: "La categoría del servicio es requerida para contextualizar la propuesta.",
+        error:
+          "La categoría del servicio es requerida para contextualizar la propuesta.",
       });
     }
 
     tituloLimpio = titulo.trim();
     categoriaLimpia = categoria.trim();
-    const descripcionActualLimpia = typeof descripcion_actual === "string" ? descripcion_actual.trim() : "";
+    const descripcionActualLimpia =
+      typeof descripcion_actual === "string" ? descripcion_actual.trim() : "";
 
     const textoCompleto = `${tituloLimpio} ${categoriaLimpia}`;
     if (contieneTerminosInapropiados(textoCompleto)) {
       return res.status(400).json({
-        error: "El contenido ingresado contiene términos ofensivos, inapropiados o discriminatorios no permitidos.",
+        error:
+          "El contenido ingresado contiene términos ofensivos, inapropiados o discriminatorios no permitidos.",
       });
     }
 
-    const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "").trim();
+    const apiKey = (
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      ""
+    ).trim();
 
     if (!apiKey) {
       console.warn(
-        "Aviso: GEMINI_API_KEY no detectada en .env. Utilizando generador comercial dinámico de respaldo."
+        "Aviso: GEMINI_API_KEY no detectada en .env. Utilizando generador comercial dinámico de respaldo.",
       );
       const fallbackLocal = generarDescripcionComercialLocal(
         tituloLimpio,
         categoriaLimpia,
-        descripcionActualLimpia
+        descripcionActualLimpia,
       );
       return res.status(200).json({
         descripcion: fallbackLocal,
@@ -316,19 +372,19 @@ Tu objetivo es crear una propuesta de descripción comercial, persuasiva y convi
 
 REGLAS ESTRICTAS DE REDACCIÓN Y SEGURIDAD:
 1. ENFOQUE COMERCIAL Y PERSUASIVO:
-   - Redacta un texto vendedor, claro y profesional que genere máxima confianza e invite al cliente a contratar de inmediato.
-   - Enfatiza experiencia, puntualidad, diagnóstico riguroso, uso de herramientas profesionales y garantía de trabajo bien hecho.
-   - REGLA ESTRICTA: NO incluyas montos numéricos, tarifas ni precios en el texto de la descripción. El precio ya se visualiza por separado en la interfaz.
+  - Redacta un texto vendedor, claro y profesional que genere máxima confianza e invite al cliente a contratar de inmediato.
+  - Enfatiza experiencia, puntualidad, diagnóstico riguroso, uso de herramientas profesionales y garantía de trabajo bien hecho.
+  - REGLA ESTRICTA: NO incluyas montos numéricos, tarifas ni precios en el texto de la descripción. El precio ya se visualiza por separado en la interfaz.
 2. ALEATORIO Y NO ESTÁTICO (DIVERSIDAD CREATIVA):
-   - Cada redacción debe ser única y original. Varía la estructura y los ganchos comerciales. Evita plantillas repetitivas o acartonadas.
+  - Cada redacción debe ser única y original. Varía la estructura y los ganchos comerciales. Evita plantillas repetitivas o acartonadas.
 3. CALIDAD LINGÜÍSTICA:
-   - Español natural (estilo rioplatense/latinoamericano profesional). Absolutamente libre de faltas ortográficas o problemas de concordancia.
-   - Longitud ideal: 2 a 3 oraciones contundentes o 1 párrafo de entre 50 y 85 palabras.
+  - Español natural (estilo rioplatense/latinoamericano profesional). Absolutamente libre de faltas ortográficas o problemas de concordancia.
+  - Longitud ideal: 2 a 3 oraciones contundentes o 1 párrafo de entre 50 y 85 palabras.
 4. FILTRO ESTRICTO DE SEGURIDAD (TOLERANCIA CERO):
-   - Prohibido de manera explícita e intransigente incluir lenguaje vulgar, soez, ofensivo, difamatorio, violento o discriminatorio por motivos de raza, género, religión o nacionalidad.
-   - Si los datos provistos denotan contenido inapropiado o ilícito, responde ÚNICAMENTE: {"error": "contenido_inapropiado"}
+  - Prohibido de manera explícita e intransigente incluir lenguaje vulgar, soez, ofensivo, difamatorio, violento o discriminatorio por motivos de raza, género, religión o nacionalidad.
+  - Si los datos provistos denotan contenido inapropiado o ilícito, responde ÚNICAMENTE: {"error": "contenido_inapropiado"}
 5. FORMATO DE SALIDA ESTRICTO:
-   - Responde EXCLUSIVAMENTE con un JSON válido con la siguiente clave:
+  - Responde EXCLUSIVAMENTE con un JSON válido con la siguiente clave:
    {"descripcion": "texto de la propuesta comercial aquí"}
    No agregues explicaciones adicionales, ni introducciones ni código Markdown fuera del JSON.`;
 
@@ -346,7 +402,10 @@ REGLAS ESTRICTAS DE REDACCIÓN Y SEGURIDAD:
         .trim();
       parsedResponse = JSON.parse(cleaned);
     } catch (parseError) {
-      console.warn("No se pudo parsear como JSON directo, usando texto limpio:", parseError);
+      console.warn(
+        "No se pudo parsear como JSON directo, usando texto limpio:",
+        parseError,
+      );
       if (response.text && response.text.trim().length > 10) {
         const fallbackText = response.text
           .replace(/[{}"\\]/g, "")
@@ -361,7 +420,8 @@ REGLAS ESTRICTAS DE REDACCIÓN Y SEGURIDAD:
 
     if (parsedResponse.error === "contenido_inapropiado") {
       return res.status(400).json({
-        error: "El servicio no cumple con las normas de seguridad de contenido de ExpertoYa.",
+        error:
+          "El servicio no cumple con las normas de seguridad de contenido de ExpertoYa.",
       });
     }
 
@@ -370,9 +430,14 @@ REGLAS ESTRICTAS DE REDACCIÓN Y SEGURIDAD:
       parsedResponse.description ||
       parsedResponse.texto;
 
-    if (!descripcionFinal || typeof descripcionFinal !== "string" || !descripcionFinal.trim()) {
+    if (
+      !descripcionFinal ||
+      typeof descripcionFinal !== "string" ||
+      !descripcionFinal.trim()
+    ) {
       return res.status(500).json({
-        error: "La IA no pudo generar una descripción adecuada en este intento.",
+        error:
+          "La IA no pudo generar una descripción adecuada en este intento.",
       });
     }
 
@@ -380,28 +445,37 @@ REGLAS ESTRICTAS DE REDACCIÓN Y SEGURIDAD:
       descripcion: descripcionFinal.trim(),
     });
   } catch (error: any) {
-    console.error("Error en generateDescription ->", error?.status || error?.code, error?.message || error);
+    console.error(
+      "Error en generateDescription ->",
+      error?.status || error?.code,
+      error?.message || error,
+    );
 
     if (tituloLimpio && categoriaLimpia) {
-      console.warn("Recurriendo al generador de contingencia tras fallo en API de Gemini.");
+      console.warn(
+        "Recurriendo al generador de contingencia tras fallo en API de Gemini.",
+      );
       const fallbackLocal = generarDescripcionComercialLocal(
         tituloLimpio,
-        categoriaLimpia
+        categoriaLimpia,
       );
       return res.status(200).json({
         descripcion: fallbackLocal,
-        aviso: "Propuesta generada mediante motor de respaldo por saturación de servicio externo.",
+        aviso:
+          "Propuesta generada mediante motor de respaldo por saturación de servicio externo.",
       });
     }
 
     if (error?.status === 429) {
       return res.status(429).json({
-        error: "El asistente de IA se encuentra momentáneamente saturado. Por favor intenta en un instante.",
+        error:
+          "El asistente de IA se encuentra momentáneamente saturado. Por favor intenta en un instante.",
       });
     }
 
     return res.status(500).json({
-      error: "Error interno en el servicio de IA al generar la propuesta comercial.",
+      error:
+        "Error interno en el servicio de IA al generar la propuesta comercial.",
     });
   }
 };
