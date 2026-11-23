@@ -109,9 +109,10 @@ export const obtenerMisConversaciones = async (
               : ultimoMensaje.contenido
           : "Sin mensajes aún",
         timestamp: ultimoMensaje
-          ? new Date(ultimoMensaje.enviado_en).toLocaleTimeString([], {
+          ? new Date(ultimoMensaje.enviado_en).toLocaleTimeString("es-AR", {
             hour: "2-digit",
             minute: "2-digit",
+            timeZone: "America/Argentina/Buenos_Aires",
           })
           : "Nuevo",
         unreadCount: 0,
