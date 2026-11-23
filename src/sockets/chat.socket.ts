@@ -769,6 +769,9 @@ export const initChatSocket = (io: Server) => {
           if (!solicitud_id) return;
 
           const llamada = llamadasActivas.get(solicitud_id);
+          if (!llamada) {
+            return;
+          }
           const roomName = `solicitud_${solicitud_id}`;
 
           let duracion = duracionParam ?? 0;
@@ -824,15 +827,18 @@ export const initChatSocket = (io: Server) => {
               where: { id: solicitud_id },
               select: { cliente_id: true },
             });
-            endSenderId = sol?.cliente_id;
+            if (sol?.cliente_id) {
+              endSenderId = sol.cliente_id;
+            }
           }
 
           if (resumenTexto && endSenderId) {
+            const remitenteId: string = endSenderId;
             try {
               const msgFin = await prisma.mensajeChat.create({
                 data: {
                   solicitud_id,
-                  remitente_id: endSenderId,
+                  remitente_id: remitenteId,
                   contenido: resumenTexto,
                   leido: false,
                 },
