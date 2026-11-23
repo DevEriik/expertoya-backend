@@ -33,7 +33,7 @@ import path from "path";
 import fs from "fs";
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
 
 app.use("/uploads", (req: Request, res: Response, next: NextFunction) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
