@@ -28,12 +28,15 @@ class EmailService {
 
   private constructor() {
     this.transporter = nodemailer.createTransport({
-      service: "gmail",
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      family: 4,
       auth: {
         user: process.env.GMAIL_USER,
         pass: process.env.GMAIL_APP_PASSWORD,
       },
-    });
+    } as any);
   }
 
   public static getInstance(): EmailService {
@@ -118,9 +121,8 @@ class EmailService {
                     ${bodyHtml}
 
                     <!-- Botón Principal (si aplica) -->
-                    ${
-                      ctaText && ctaUrl
-                        ? `
+                    ${ctaText && ctaUrl
+        ? `
                         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin: 28px 0 20px 0;">
                           <tr>
                             <td align="center">
@@ -131,19 +133,18 @@ class EmailService {
                           </tr>
                         </table>
                       `
-                        : ""
-                    }
+        : ""
+      }
 
                     <!-- Nota Adicional (si aplica) -->
-                    ${
-                      extraNote
-                        ? `
+                    ${extraNote
+        ? `
                         <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 16px 0 0 0; text-align: center;">
                           ${extraNote}
                         </p>
                       `
-                        : ""
-                    }
+        : ""
+      }
 
                   </td>
                 </tr>
@@ -478,11 +479,11 @@ class EmailService {
     const oficiosHtml =
       oficios.length > 0
         ? oficios
-            .map(
-              (o) =>
-                `<li style="margin-bottom: 4px; color: #1e293b; font-weight: 600;">${o}</li>`,
-            )
-            .join("")
+          .map(
+            (o) =>
+              `<li style="margin-bottom: 4px; color: #1e293b; font-weight: 600;">${o}</li>`,
+          )
+          .join("")
         : "<li>Ningún oficio especificado</li>";
 
     const html = this.getBaseTemplate({
