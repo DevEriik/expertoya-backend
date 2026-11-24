@@ -772,34 +772,35 @@ export const initChatSocket = (io: Server) => {
           if (!llamada) {
             return;
           }
+
+          // Marcar la llamada como finalizada de forma atómica antes de cualquier await
+          // para evitar mensajes duplicados cuando ambos extremos cortan al mismo tiempo.
+          llamadasActivas.delete(solicitud_id);
+          socketToSolicitudLlamada.delete(socket.id);
+          if (llamada.caller_socket_id) {
+            socketToSolicitudLlamada.delete(llamada.caller_socket_id);
+          }
+          if (llamada.recipient_socket_id) {
+            socketToSolicitudLlamada.delete(llamada.recipient_socket_id);
+          }
+
           const roomName = `solicitud_${solicitud_id}`;
 
           let duracion = duracionParam ?? 0;
-          if (!duracion && llamada) {
+          if (!duracion) {
             duracion = Math.max(
               0,
               Math.round((Date.now() - llamada.iniciado_en.getTime()) / 1000),
             );
           }
 
-          if (llamada) {
-            if (llamada.sesion_id) {
-              await prisma.sesionVideollamada
-                .update({
-                  where: { id: llamada.sesion_id },
-                  data: { hora_fin: new Date(), duracion_segundos: duracion },
-                })
-                .catch(() => {});
-            }
-
-            llamadasActivas.delete(solicitud_id);
-            socketToSolicitudLlamada.delete(socket.id);
-            if (llamada.caller_socket_id) {
-              socketToSolicitudLlamada.delete(llamada.caller_socket_id);
-            }
-            if (llamada.recipient_socket_id) {
-              socketToSolicitudLlamada.delete(llamada.recipient_socket_id);
-            }
+          if (llamada.sesion_id) {
+            await prisma.sesionVideollamada
+              .update({
+                where: { id: llamada.sesion_id },
+                data: { hora_fin: new Date(), duracion_segundos: duracion },
+              })
+              .catch(() => {});
           }
 
           io.to(roomName).emit("call:ended", {
