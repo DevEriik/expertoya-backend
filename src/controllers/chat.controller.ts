@@ -990,6 +990,85 @@ export const responderPropuestaVisita = async (
       data: { contenido: nuevoContenido },
     });
 
+    if (nuevo_estado === "ACEPTADA") {
+      const updateSolicitudData: {
+        fecha_solicitada?: Date;
+        franja_horaria?: string;
+        descripcion?: string;
+        monto_acordado?: number;
+        estado_solicitud_trabajo?: "ACEPTADO";
+      } = {};
+
+      if (typeof propuestaData.fecha === "string" && propuestaData.fecha.trim()) {
+        const rawFecha = propuestaData.fecha.trim();
+        const isoMatch = rawFecha.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        const latamMatch = rawFecha.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        let parsedDate: Date | null = null;
+        if (isoMatch) {
+          parsedDate = new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}T12:00:00Z`);
+        } else if (latamMatch) {
+          parsedDate = new Date(
+            `${latamMatch[3]}-${latamMatch[2].padStart(2, "0")}-${latamMatch[1].padStart(2, "0")}T12:00:00Z`,
+          );
+        } else {
+          const d = new Date(rawFecha);
+          if (!Number.isNaN(d.getTime())) parsedDate = d;
+        }
+        if (parsedDate && !Number.isNaN(parsedDate.getTime())) {
+          updateSolicitudData.fecha_solicitada = parsedDate;
+        }
+      }
+
+      if (typeof propuestaData.hora === "string" && propuestaData.hora.trim()) {
+        updateSolicitudData.franja_horaria = propuestaData.hora.trim();
+      }
+
+      const partesDescripcion: string[] = [];
+      if (typeof propuestaData.nota === "string" && propuestaData.nota.trim()) {
+        partesDescripcion.push(propuestaData.nota.trim());
+      }
+      if (typeof propuestaData.materiales === "string" && propuestaData.materiales.trim()) {
+        partesDescripcion.push(`Materiales: ${propuestaData.materiales.trim()}`);
+      }
+      if (partesDescripcion.length > 0) {
+        updateSolicitudData.descripcion = partesDescripcion.join(" | ");
+      }
+
+      if (propuestaData.presupuesto !== undefined && propuestaData.presupuesto !== null) {
+        let monto: number | null = null;
+        if (typeof propuestaData.presupuesto === "number") {
+          monto = propuestaData.presupuesto;
+        } else if (typeof propuestaData.presupuesto === "string") {
+          let cleaned = propuestaData.presupuesto.replace(/[^\d.,]/g, "");
+          if (cleaned.includes(".") && cleaned.includes(",")) {
+            cleaned = cleaned.replace(/\./g, "").replace(",", ".");
+          } else if (/,\d{1,2}$/.test(cleaned)) {
+            cleaned = cleaned.replace(",", ".");
+          } else if (/^\d{1,3}(\.\d{3})+$/.test(cleaned)) {
+            cleaned = cleaned.replace(/\./g, "");
+          } else {
+            cleaned = cleaned.replace(/,/g, "");
+          }
+          const parsed = Number.parseFloat(cleaned);
+          if (Number.isFinite(parsed)) monto = parsed;
+        }
+        if (monto !== null && monto > 0) {
+          updateSolicitudData.monto_acordado = monto;
+        }
+      }
+
+      if (solicitud.estado_solicitud_trabajo === "PENDIENTE") {
+        updateSolicitudData.estado_solicitud_trabajo = "ACEPTADO";
+      }
+
+      if (Object.keys(updateSolicitudData).length > 0) {
+        await prisma.solicitudTrabajo.update({
+          where: { id: solicitud_id },
+          data: updateSolicitudData,
+        });
+      }
+    }
+
     let nuevoMensaje = null;
     if (respuesta_texto && respuesta_texto.trim()) {
       nuevoMensaje = await prisma.mensajeChat.create({

@@ -20,29 +20,24 @@ export const registrarToken = async (
       plataforma?: string;
     };
 
-    if (!token || typeof token !== "string") {
+    if (!token || typeof token !== "string" || token.trim().length < 20) {
       res
         .status(400)
         .json({ error: "El token del dispositivo es obligatorio" });
       return;
     }
 
-    if (!Expo.isExpoPushToken(token)) {
-      res.status(400).json({
-        error: "El token no tiene formato de ExpoPushToken válido",
-      });
-      return;
-    }
+    const tokenNormalizado = token.trim();
 
     const dispositivo = await prisma.dispositivoPush.upsert({
-      where: { token },
+      where: { token: tokenNormalizado },
       update: {
         userId,
         plataforma: plataforma || "DESCONOCIDA",
       },
       create: {
         userId,
-        token,
+        token: tokenNormalizado,
         plataforma: plataforma || "DESCONOCIDA",
       },
     });
