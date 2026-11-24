@@ -218,6 +218,9 @@ export const iniciarConversacion = async (
       where: {
         cliente_id: userId,
         servicio: { profesional_id: pro.id },
+        estado_solicitud_trabajo: {
+          notIn: ["FINALIZADO", "CANCELADO", "RECHAZADO", "BLOQUEADO"],
+        },
       },
       orderBy: { actualizado_en: "desc" },
     });
