@@ -65,7 +65,31 @@ export const obtenerMisConversaciones = async (
       orderBy: { actualizado_en: "desc" },
     });
 
-    const conversaciones = solicitudes.map((s) => {
+    const ESTADOS_CERRADOS = new Set([
+      "FINALIZADO",
+      "CANCELADO",
+      "RECHAZADO",
+      "BLOQUEADO",
+    ]);
+    const mapaPorPar = new Map<string, (typeof solicitudes)[number]>();
+    for (const s of solicitudes) {
+      const clavePar = `${s.cliente_id}_${s.servicio.profesional_id}`;
+      const existente = mapaPorPar.get(clavePar);
+      if (!existente) {
+        mapaPorPar.set(clavePar, s);
+        continue;
+      }
+      const sActiva = !ESTADOS_CERRADOS.has(s.estado_solicitud_trabajo);
+      const existenteActiva = !ESTADOS_CERRADOS.has(
+        existente.estado_solicitud_trabajo,
+      );
+      if (sActiva && !existenteActiva) {
+        mapaPorPar.set(clavePar, s);
+      }
+    }
+    const solicitudesUnicas = Array.from(mapaPorPar.values());
+
+    const conversaciones = solicitudesUnicas.map((s) => {
       const ultimoMensaje = s.mensajes[0];
 
       const clientParticipant = {

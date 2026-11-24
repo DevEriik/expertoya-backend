@@ -600,6 +600,20 @@ export const resolverReporteDenuncia = async (
 
     const denunciadoId = reporte.denunciado_id;
 
+    if (sancionTyped === SancionAplicada.NINGUNA && reporte.solicitud_id) {
+      await prisma.bloqueoUsuario.updateMany({
+        where: { solicitud_id: reporte.solicitud_id, activo: true },
+        data: { activo: false },
+      });
+      await prisma.solicitudTrabajo.updateMany({
+        where: {
+          id: reporte.solicitud_id,
+          estado_solicitud_trabajo: "BLOQUEADO" as any,
+        },
+        data: { estado_solicitud_trabajo: "ACEPTADO" },
+      });
+    }
+
     if (sancionTyped === SancionAplicada.ADVERTENCIA) {
       await prisma.usuario.update({
         where: { id: denunciadoId },
