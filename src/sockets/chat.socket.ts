@@ -333,7 +333,21 @@ export const initChatSocket = (io: Server) => {
             mensaje_id: nuevoMensaje.id,
           });
 
-          if (destinatarioId && !estaUsuarioConectado(destinatarioId)) {
+          const userRoom = io.sockets.adapter.rooms.get(`usuario_${destinatarioId}`);
+          const chatRoom = io.sockets.adapter.rooms.get(roomName);
+          const destinatarioEnChat = Boolean(
+            destinatarioId &&
+              userRoom &&
+              chatRoom &&
+              Array.from(userRoom).some((sid) => chatRoom.has(sid)),
+          );
+
+          if (destinatarioId && !destinatarioEnChat) {
+            io.to(`usuario_${destinatarioId}`).emit("nuevo_mensaje", {
+              ...nuevoMensaje,
+              temp_id,
+            });
+
             const vistaPrevia = contenido?.trim()
               ? contenido.trim().slice(0, 80)
               : adjunto_url
