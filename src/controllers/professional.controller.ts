@@ -123,8 +123,11 @@ export const updateProfile = async (
       return;
     }
 
-    const userRole = req.user?.rol;
-    if (userRole === "CLIENTE") {
+    const profesionalActual = await prisma.profesional.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!profesionalActual) {
       res.status(403).json({ error: "Las cuentas de cliente deben actualizar su perfil desde /api/auth/profile." });
       return;
     }
@@ -787,8 +790,11 @@ export const createService = async (
       return;
     }
 
-    const userRole = req.user?.rol;
-    if (userRole === "CLIENTE") {
+    const profesionalActual = await prisma.profesional.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!profesionalActual) {
       res.status(403).json({ error: "Las cuentas de cliente no tienen permitido publicar servicios." });
       return;
     }
