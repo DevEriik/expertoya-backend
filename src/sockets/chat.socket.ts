@@ -636,6 +636,16 @@ export const initChatSocket = (io: Server) => {
             sesion_id: sesion.id,
           });
 
+          if (recipientId) {
+            notificacionService
+              .notificarLlamadaEntrante(
+                recipientId,
+                solicitud_id,
+                callerData.name,
+              )
+              .catch(() => {});
+          }
+
           socket.emit("call:ringing", {
             solicitud_id,
             roomUrl: salaDaily.url,
