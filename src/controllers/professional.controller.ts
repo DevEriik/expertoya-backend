@@ -58,7 +58,7 @@ export const getProfile = async (
     const rawMotivo = usuarioConPerfil.profesional?.motivo_rechazo || null;
     const esMatriculaPendiente = Boolean(
       usuarioConPerfil.profesional?.estado_validado &&
-        rawMotivo?.startsWith("SOLICITUD_MATRICULA_PENDIENTE:"),
+      rawMotivo?.startsWith("SOLICITUD_MATRICULA_PENDIENTE:"),
     );
     let oficiosPendientesIds: number[] = [];
     if (esMatriculaPendiente && rawMotivo) {
@@ -376,12 +376,6 @@ export const submitOnboarding = async (
     const userId = req.user?.userId;
     if (!userId) {
       res.status(401).json({ error: "No autenticado" });
-      return;
-    }
-
-    const userRole = req.user?.rol;
-    if (userRole === "CLIENTE") {
-      res.status(403).json({ error: "Las cuentas de cliente deben actualizar su perfil desde /api/auth/profile." });
       return;
     }
 
